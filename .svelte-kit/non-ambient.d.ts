@@ -46,7 +46,7 @@ declare module "$app/types" {
 			"/quests/[id]": { id: string };
 			"/scan": Record<string, never>
 		};
-		Pathname(): "/" | "/api/quests/complete" | "/api/stripe/checkout" | "/login" | "/order" | `/quests/${string}` & {} | "/scan";
+		Pathname(): "/" | "/api/quests/complete" | "/api/stripe/checkout" | "/login" | "/order" | "/quests" | `/quests/${string}` & {} | "/scan";
 		ResolvedPathname(): `${"" | `/${string}`}${ReturnType<AppTypes['Pathname']>}`;
 		Asset(): string & {};
 	}

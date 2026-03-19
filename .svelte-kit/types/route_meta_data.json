@@ -8,6 +8,7 @@
 	],
 	"/login": [],
 	"/order": [],
+	"/quests": [],
 	"/quests/[id]": [],
 	"/scan": []
 }
