@@ -1,14 +1,13 @@
 {
 	"/": [],
-	"/api/quests/complete": [
-		"src/routes/api/quests/complete/+server.ts"
+	"/api/orders/complete": [
+		"src/routes/api/orders/complete/+server.ts"
 	],
 	"/api/stripe/checkout": [
 		"src/routes/api/stripe/checkout/+server.ts"
 	],
 	"/login": [],
+	"/orders/[id]": [],
 	"/order": [],
-	"/quests": [],
-	"/quests/[id]": [],
 	"/scan": []
 }

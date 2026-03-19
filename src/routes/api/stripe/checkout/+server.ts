@@ -6,10 +6,10 @@ const stripe = new Stripe(STRIPE_SECRET_KEY);
 
 export const POST = async ({ request }) => {
   try {
-    const { questId, title, amount } = await request.json();
+    const { orderId, title, amount } = await request.json();
 
-    if (!questId || !amount) {
-      return json({ error: 'Missing questId or amount' }, { status: 400 });
+    if (!orderId || !amount) {
+      return json({ error: 'Missing orderId or amount' }, { status: 400 });
     }
 
     // Stripe Checkout Session の作成
@@ -20,7 +20,7 @@ export const POST = async ({ request }) => {
           price_data: {
             currency: 'jpy',
             product_data: {
-              name: title || 'ギルド・クエスト報酬',
+              name: title || 'キャンパス・ハブ 依頼報酬',
             },
             unit_amount: amount,
           },
@@ -29,13 +29,13 @@ export const POST = async ({ request }) => {
       ],
       mode: 'payment',
       payment_intent_data: {
-        capture_method: 'manual', // 【最重要】支払いの確定を保留（仮押さえ）
+        capture_method: 'manual', // 支払いの確定を保留（仮押さえ）
         metadata: {
-          questId: questId,
+          orderId: orderId,
         },
       },
       // リクエスト元のオリジンを取得してリダイレクトURLを構築
-      success_url: `${request.headers.get('origin')}/quests/${questId}?success=true`,
+      success_url: `${request.headers.get('origin')}/orders/${orderId}?success=true`,
       cancel_url: `${request.headers.get('origin')}/order`,
     });
 

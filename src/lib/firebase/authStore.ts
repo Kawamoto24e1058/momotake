@@ -1,12 +1,25 @@
 import { writable } from 'svelte/store';
 import { auth, googleProvider, db } from './firebase';
-import { signInWithPopup, signOut, type User } from 'firebase/auth';
+export { auth };
+import { signInWithPopup, signOut, onAuthStateChanged, type User } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 
 /**
  * ログイン中のユーザー情報を管理する Svelte ストア
  */
 export const user = writable<User | null>(null);
+
+/**
+ * 認証初期化状態を管理するストア
+ * true: 初期化中, false: 完了
+ */
+export const loading = writable<boolean>(true);
+
+// 認証状態の変化を監視
+onAuthStateChanged(auth, (u) => {
+  user.set(u);
+  loading.set(false);
+});
 
 /**
  * Google 認証を使用してログインします。

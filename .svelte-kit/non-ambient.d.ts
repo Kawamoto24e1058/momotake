@@ -29,24 +29,24 @@ declare module "$app/types" {
 	type MatcherParam<M> = M extends (param : string) => param is (infer U extends string) ? U : string;
 
 	export interface AppTypes {
-		RouteId(): "/" | "/api" | "/api/quests" | "/api/quests/complete" | "/api/stripe" | "/api/stripe/checkout" | "/login" | "/order" | "/quests" | "/quests/[id]" | "/scan";
+		RouteId(): "/" | "/api" | "/api/orders" | "/api/orders/complete" | "/api/stripe" | "/api/stripe/checkout" | "/login" | "/orders" | "/orders/[id]" | "/order" | "/scan";
 		RouteParams(): {
-			"/quests/[id]": { id: string }
+			"/orders/[id]": { id: string }
 		};
 		LayoutParams(): {
 			"/": { id?: string };
 			"/api": Record<string, never>;
-			"/api/quests": Record<string, never>;
-			"/api/quests/complete": Record<string, never>;
+			"/api/orders": Record<string, never>;
+			"/api/orders/complete": Record<string, never>;
 			"/api/stripe": Record<string, never>;
 			"/api/stripe/checkout": Record<string, never>;
 			"/login": Record<string, never>;
+			"/orders": { id?: string };
+			"/orders/[id]": { id: string };
 			"/order": Record<string, never>;
-			"/quests": { id?: string };
-			"/quests/[id]": { id: string };
 			"/scan": Record<string, never>
 		};
-		Pathname(): "/" | "/api/quests/complete" | "/api/stripe/checkout" | "/login" | "/order" | "/quests" | `/quests/${string}` & {} | "/scan";
+		Pathname(): "/" | "/api/orders/complete" | "/api/stripe/checkout" | "/login" | `/orders/${string}` & {} | "/order" | "/scan";
 		ResolvedPathname(): `${"" | `/${string}`}${ReturnType<AppTypes['Pathname']>}`;
 		Asset(): string & {};
 	}

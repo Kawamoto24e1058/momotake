@@ -1,80 +1,73 @@
 <script lang="ts">
   import '../app.css';
+  import { auth, user, loading } from '$lib/firebase/authStore';
+  import { signOut } from 'firebase/auth';
+  import { fade, fly } from 'svelte/transition';
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { auth } from '$lib/firebase/firebase';
-  import { onAuthStateChanged } from 'firebase/auth';
-  import { user, signOutUser } from '$lib/firebase/authStore';
-  import { fade } from 'svelte/transition';
 
-  onMount(() => {
-    // 認証状態の監視を開始
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      user.set(firebaseUser);
-    });
+  // ログインループ防止: 認証初期化を待ってから未ログインなら飛ばす
+  $: if (!$loading && !$user && $page.url.pathname !== '/login') {
+    goto('/login');
+  }
 
-    return () => unsubscribe();
-  });
+  async function handleLogout() {
+    await signOut(auth);
+  }
 </script>
 
-<div class="min-h-screen animate-mesh relative overflow-hidden flex flex-col">
-  <!-- Interactive Particles -->
-  <div class="absolute inset-0 pointer-events-none overflow-hidden z-0">
-    <div class="particle" style="--size: 80px; --tx: 100px; --ty: -300px; --duration: 25s; --delay: 0s; top: 90%; left: 10%;"></div>
-    <div class="particle" style="--size: 150px; --tx: -200px; --ty: -400px; --duration: 35s; --delay: 5s; top: 80%; left: 80%;"></div>
-    <div class="particle" style="--size: 60px; --tx: 50px; --ty: -200px; --duration: 20s; --delay: 10s; top: 70%; left: 30%;"></div>
-  </div>
-
-  <!-- Modern Glassmorphic Header -->
-  <header class="sticky top-0 z-50 bg-white/40 backdrop-blur-md border-b border-white/30 px-6 py-4 shadow-sm">
-    <div class="max-w-6xl mx-auto flex justify-between items-center">
-      <a href="/" class="flex items-center space-x-3 group transition-transform active:scale-95">
-        <div class="w-10 h-10 bg-gradient-to-br from-pink-400 to-orange-300 rounded-xl flex items-center justify-center shadow-lg transform group-hover:rotate-6 transition-all duration-300">
-          <span class="text-white font-black text-xs">MT</span>
-        </div>
-        <div class="hidden sm:block">
-          <span class="text-stone-800 font-bold tracking-tight text-xl">Momotake Portal</span>
-        </div>
-      </a>
-
-      <nav class="flex items-center space-x-6">
-        {#if $user}
-          <div class="flex items-center space-x-4">
-            <div class="text-right hidden sm:block">
-              <span class="block text-[8px] text-pink-500 uppercase tracking-widest font-black leading-none mb-1">Adventurer</span>
-              <span class="text-stone-700 font-bold text-sm">{$user.displayName}</span>
-            </div>
-            {#if $user.photoURL}
-              <img src={$user.photoURL} alt="Profile" class="w-9 h-9 rounded-full border-2 border-white/50 shadow-sm" />
-            {/if}
-            <button
-              on:click={signOutUser}
-              class="bg-stone-200/50 hover:bg-stone-200 text-stone-600 px-4 py-2 rounded-xl text-xs font-bold transition-all"
-            >
-              Sign out
-            </button>
-          </div>
-        {:else}
-          <a
-            href="/login"
-            class="bg-gradient-to-r from-pink-400 to-orange-300 text-white px-6 py-2.5 rounded-2xl text-sm font-bold shadow-lg hover:shadow-pink-200/50 hover:scale-105 active:scale-95 transition-all duration-300"
-          >
-            Sign in
-          </a>
-        {/if}
-      </nav>
+{#if $loading}
+  <div class="fixed inset-0 bg-white flex items-center justify-center z-[9999]">
+    <div class="animate-pulse flex flex-col items-center space-y-4">
+      <div class="w-12 h-12 bg-pink-200 rounded-full"></div>
+      <p class="text-xs font-bold text-stone-400 uppercase tracking-widest">Initializing...</p>
     </div>
-  </header>
-
-  <!-- Page Content -->
-  <main class="flex-grow z-10">
-    <slot />
-  </main>
+  </div>
+{:else}
+<div class="bg-blobs">
+  <div class="blob w-[600px] h-[600px] -top-20 -left-20" style="--duration: 20s; --tx: 100px; --ty: 150px;"></div>
+  <div class="blob w-[500px] h-[500px] top-1/2 -right-20" style="--duration: 25s; --tx: -120px; --ty: -100px;"></div>
+  <div class="blob w-[400px] h-[400px] -bottom-20 left-1/4" style="--duration: 18s; --tx: 80px; --ty: -80px;"></div>
 </div>
 
-<style>
-  :global(body) {
-    background-color: #2d0a0a;
-    margin: 0;
-    padding: 0;
-  }
-</style>
+<div class="min-h-screen flex flex-col font-sans text-stone-800 relative z-10">
+  <!-- Nav Header -->
+  <header class="sticky top-0 z-50 bg-white/70 backdrop-blur-md border-b border-pink-100 px-6 py-4 flex justify-between items-center">
+    <a href="/" class="flex items-center space-x-2 group">
+      <div class="w-8 h-8 bg-gradient-to-br from-pink-400 to-orange-400 rounded-lg shadow-lg flex items-center justify-center text-white transform group-hover:rotate-12 transition-transform">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
+        </svg>
+      </div>
+      <span class="text-xl font-black tracking-tighter text-stone-800">Campus Hub</span>
+    </a>
+
+    <nav class="flex items-center space-x-4">
+      {#if $user}
+        <button 
+          on:click={handleLogout}
+          class="text-xs font-bold text-stone-400 hover:text-stone-600 transition-colors uppercase tracking-widest"
+        >
+          Logout
+        </button>
+        <div class="w-10 h-10 rounded-full border-2 border-pink-100 overflow-hidden bg-white shadow-sm">
+          <img src={$user.photoURL || `https://ui-avatars.com/api/?name=${$user.displayName}`} alt="Avatar" class="w-full h-full object-cover" />
+        </div>
+      {:else}
+        <a href="/login" class="campus-button-primary py-2 px-5 text-sm">
+          Login
+        </a>
+      {/if}
+    </nav>
+  </header>
+
+  <main class="flex-grow">
+    <slot />
+  </main>
+
+  <footer class="p-8 text-center text-stone-400 text-[10px] uppercase tracking-[0.3em]">
+    &copy; 2026 Campus Hub // Support local student crew
+  </footer>
+</div>
+{/if}

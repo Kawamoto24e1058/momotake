@@ -39,6 +39,7 @@
  */
 declare module '$env/static/private' {
 	export const STRIPE_SECRET_KEY: string;
+	export const ANTIGRAVITY_AGENT: string;
 	export const TERM_PROGRAM: string;
 	export const NODE: string;
 	export const INIT_CWD: string;
@@ -62,6 +63,7 @@ declare module '$env/static/private' {
 	export const VSCODE_PROFILE_INITIALIZED: string;
 	export const __CF_USER_TEXT_ENCODING: string;
 	export const npm_execpath: string;
+	export const PAGER: string;
 	export const PATH: string;
 	export const npm_package_json: string;
 	export const _: string;
@@ -193,6 +195,7 @@ declare module '$env/static/public' {
 declare module '$env/dynamic/private' {
 	export const env: {
 		STRIPE_SECRET_KEY: string;
+		ANTIGRAVITY_AGENT: string;
 		TERM_PROGRAM: string;
 		NODE: string;
 		INIT_CWD: string;
@@ -216,6 +219,7 @@ declare module '$env/dynamic/private' {
 		VSCODE_PROFILE_INITIALIZED: string;
 		__CF_USER_TEXT_ENCODING: string;
 		npm_execpath: string;
+		PAGER: string;
 		PATH: string;
 		npm_package_json: string;
 		_: string;
