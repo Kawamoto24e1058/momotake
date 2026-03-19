@@ -1,3 +1,49 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    @apply font-sans text-stone-800 leading-relaxed;
+  }
+}
+
+/* Moving Mesh Gradient Animation */
+@keyframes mesh-gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-mesh {
+  background: linear-gradient(-45deg, #fce4ec, #fff3e0, #f3e5f5, #fff5f5);
+  background-size: 400% 400%;
+  animation: mesh-gradient 20s ease infinite;
+}
+
+/* Floating Light Particles */
+@keyframes float-particle {
+  0% { 
+    transform: translate(0, 0) rotate(0deg); 
+    opacity: 0; 
+  }
+  20% { opacity: 0.3; }
+  80% { opacity: 0.3; }
+  100% { 
+    transform: translate(var(--tx), var(--ty)) rotate(360deg); 
+    opacity: 0; 
+  }
+}
+
+.particle {
+  position: absolute;
+  width: var(--size);
+  height: var(--size);
+  background: white;
+  border-radius: 50%;
+  filter: blur(4px);
+  pointer-events: none;
+  opacity: 0;
+  animation: float-particle var(--duration) ease-in-out infinite;
+  animation-delay: var(--delay);
+}
