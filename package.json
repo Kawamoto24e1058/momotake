@@ -4,7 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-check --tsconfig ./tsconfig.json --watch"
   },
   "repository": {
     "type": "git",
@@ -30,7 +34,10 @@
     "@sveltejs/adapter-auto": "^7.0.1",
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@types/qrcode": "^1.5.6",
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.8",
     "svelte-check": "^4.4.5",
+    "tailwindcss": "^4.2.2",
     "tslib": "^2.8.1",
     "typescript": "^5.9.3",
     "vite": "^8.0.1"
