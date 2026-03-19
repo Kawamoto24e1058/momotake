@@ -130,7 +130,7 @@
     <main class="campus-card space-y-6">
       <!-- Category Selection -->
       <div class="space-y-2">
-        <label class="text-xs font-black text-stone-400 uppercase tracking-widest ml-1">カテゴリー</label>
+        <span class="block text-xs font-black text-stone-400 uppercase tracking-widest ml-1">カテゴリー</span>
         <div class="grid grid-cols-3 gap-2">
           {#each categories as cat}
             <button 
@@ -171,6 +171,8 @@
               <button 
                 on:click={() => getCurrentLocation('pickup')}
                 class="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-stone-300 hover:text-pink-500 transition-colors"
+                title="現在地を取得"
+                aria-label="集荷場所の現在地を取得"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                   <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />
@@ -203,6 +205,8 @@
               <button 
                 on:click={() => getCurrentLocation('dropoff')}
                 class="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-stone-300 hover:text-pink-500 transition-colors"
+                title="現在地を取得"
+                aria-label="お届け先の現在地を取得"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                   <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />

@@ -4,11 +4,11 @@
   import { signOut } from 'firebase/auth';
   import { fade, fly } from 'svelte/transition';
   import { page } from '$app/stores';
+  import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
 
   // ログインループ防止: 認証初期化を待ってから未ログインなら飛ばす
-  $: if (!$loading && !$user && $page.url.pathname !== '/login') {
+  $: if (browser && !$loading && !$user && $page.url.pathname !== '/login') {
     goto('/login');
   }
 
