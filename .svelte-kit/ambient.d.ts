@@ -138,7 +138,12 @@ declare module '$env/static/private' {
  * The above values will be the same _even if_ different values for `ENVIRONMENT` or `PUBLIC_BASE_URL` are set at runtime, as they are statically replaced in your code with their build time values.
  */
 declare module '$env/static/public' {
-	
+	export const PUBLIC_FIREBASE_API_KEY: string;
+	export const PUBLIC_FIREBASE_APP_ID: string;
+	export const PUBLIC_FIREBASE_AUTH_DOMAIN: string;
+	export const PUBLIC_FIREBASE_MESSAGING_SENDER_ID: string;
+	export const PUBLIC_FIREBASE_PROJECT_ID: string;
+	export const PUBLIC_FIREBASE_STORAGE_BUCKET: string;
 }
 
 /**
@@ -307,6 +312,12 @@ declare module '$env/dynamic/private' {
  */
 declare module '$env/dynamic/public' {
 	export const env: {
+		PUBLIC_FIREBASE_API_KEY: string;
+		PUBLIC_FIREBASE_APP_ID: string;
+		PUBLIC_FIREBASE_AUTH_DOMAIN: string;
+		PUBLIC_FIREBASE_MESSAGING_SENDER_ID: string;
+		PUBLIC_FIREBASE_PROJECT_ID: string;
+		PUBLIC_FIREBASE_STORAGE_BUCKET: string;
 		[key: `PUBLIC_${string}`]: string | undefined;
 	}
 }
