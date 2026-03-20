@@ -115,7 +115,6 @@
                 </a>
               {/each}
             </div>
-          {/if}
         {:else}
           <!-- Deliver Tab -->
           <div class="space-y-6">
