@@ -1,3 +1,4 @@
+import { json } from '@sveltejs/kit';
 import { STRIPE_SECRET_KEY } from '$env/static/private';
 import { PUBLIC_STRIPE_CONNECT_ACCOUNT_ID } from '$env/static/public';
 import Stripe from 'stripe';
