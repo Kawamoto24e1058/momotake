@@ -1,5 +1,5 @@
-import { json } from '@sveltejs/kit';
 import { STRIPE_SECRET_KEY } from '$env/static/private';
+import { PUBLIC_STRIPE_CONNECT_ACCOUNT_ID } from '$env/static/public';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(STRIPE_SECRET_KEY);
@@ -11,6 +11,9 @@ export const POST = async ({ request }) => {
     if (!orderId || !amount) {
       return json({ error: 'Missing orderId or amount' }, { status: 400 });
     }
+
+    // デバッグログ: 送金先IDを確認
+    console.log(`[Stripe Checkout] Creating session for destination: ${PUBLIC_STRIPE_CONNECT_ACCOUNT_ID}`);
 
     // Stripe Checkout Session の作成
     const session = await stripe.checkout.sessions.create({
@@ -31,7 +34,7 @@ export const POST = async ({ request }) => {
       payment_intent_data: {
         capture_method: 'manual', // 支払いの確定を保留（仮押さえ）
         transfer_data: {
-          destination: 'acct_1Tcse1LxpY9xBTCF', // 送金先（配達員テストアカウント）
+          destination: PUBLIC_STRIPE_CONNECT_ACCOUNT_ID, // 送金先（環境変数から取得）
         },
         application_fee_amount: 100, // 運営手数料（100円固定、または計算ロジック適用）
         metadata: {

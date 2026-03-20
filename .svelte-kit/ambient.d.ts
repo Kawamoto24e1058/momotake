@@ -143,6 +143,7 @@ declare module '$env/static/public' {
 	export const PUBLIC_FIREBASE_MESSAGING_SENDER_ID: string;
 	export const PUBLIC_FIREBASE_PROJECT_ID: string;
 	export const PUBLIC_FIREBASE_STORAGE_BUCKET: string;
+	export const PUBLIC_STRIPE_CONNECT_ACCOUNT_ID: string;
 }
 
 /**
@@ -316,6 +317,7 @@ declare module '$env/dynamic/public' {
 		PUBLIC_FIREBASE_MESSAGING_SENDER_ID: string;
 		PUBLIC_FIREBASE_PROJECT_ID: string;
 		PUBLIC_FIREBASE_STORAGE_BUCKET: string;
+		PUBLIC_STRIPE_CONNECT_ACCOUNT_ID: string;
 		[key: `PUBLIC_${string}`]: string | undefined;
 	}
 }
