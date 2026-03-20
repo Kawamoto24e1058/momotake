@@ -96,6 +96,31 @@
   async function handleApproveCost() {
     await approveOrderCost(orderId);
   }
+
+  async function handleCapture() {
+    if (!confirm('配達完了（決済確定）として処理しますか？')) return;
+    
+    isLoading = true;
+    try {
+      const res = await fetch('/api/stripe/capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId })
+      });
+      
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || '決済確定に失敗しました');
+      }
+      
+      // ステータス更新は subscribeToOrder で検知されるが、念のため
+      window.location.reload();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      isLoading = false;
+    }
+  }
 </script>
 
 <div class="min-h-screen p-4 sm:p-8 flex items-center justify-center relative overflow-hidden">
@@ -155,7 +180,15 @@
           {#if order.clientId === $user?.uid}
             <!-- Client View -->
             {#if order.status === 'pending_payment'}
-              <p class="text-orange-500 text-sm font-bold text-center mb-4">決済が完了していません。</p>
+              <div class="p-6 bg-orange-50 rounded-2xl border border-orange-100 space-y-4">
+                <p class="text-orange-600 text-sm font-bold text-center">決済が確定（キャプチャ）されていません。</p>
+                <button 
+                  on:click={handleCapture}
+                  class="campus-button-primary w-full py-4 bg-emerald-500 hover:bg-emerald-600 shadow-emerald-200"
+                >
+                  配達完了を確認（売上を確定する）
+                </button>
+              </div>
             {:else if order.status === 'open'}
               <div class="p-8 bg-pink-50 rounded-2xl text-center space-y-4 border border-pink-100">
                 <p class="text-sm text-pink-600 font-bold">配達員がこれを見つけるのをお待ち下さい。</p>

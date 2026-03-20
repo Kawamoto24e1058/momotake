@@ -3,6 +3,9 @@
 	"/api/orders/complete": [
 		"src/routes/api/orders/complete/+server.ts"
 	],
+	"/api/stripe/capture": [
+		"src/routes/api/stripe/capture/+server.ts"
+	],
 	"/api/stripe/checkout": [
 		"src/routes/api/stripe/checkout/+server.ts"
 	],
