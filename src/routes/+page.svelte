@@ -180,7 +180,8 @@
               {/each}
             </div>
           {/if}
-        {/if}
+        </div>
+      {/if}
       </div>
     {/if}
   </div>
