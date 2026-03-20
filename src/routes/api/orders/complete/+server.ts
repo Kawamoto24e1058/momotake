@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { updateOrderStatus, getOrder } from '$lib/firebase/orderStore';
+import { calculatePlatformFee } from '$lib/utils/feeCalculator';
 import Stripe from 'stripe';
 import { STRIPE_SECRET_KEY } from '$env/static/private';
 
@@ -28,7 +29,17 @@ export const POST: RequestHandler = async ({ request }) => {
     // 2. Stripe 決済（キャプチャ）の実行
     if (order.paymentIntentId) {
       try {
-        await stripe.paymentIntents.capture(order.paymentIntentId);
+        // 合計金額（報酬 + 実費）を計算
+        const totalAmount = order.reward + (order.actualCost || 0);
+        
+        // 手数料を計算
+        const fee = calculatePlatformFee(order.reward);
+        
+        // Stripeキャプチャを実行
+        await stripe.paymentIntents.capture(order.paymentIntentId, {
+          amount_to_capture: totalAmount,
+          application_fee_amount: fee
+        });
       } catch (stripeErr: any) {
         if (stripeErr.code !== 'payment_intent_unexpected_state') {
           console.error('Stripe capture error:', stripeErr);

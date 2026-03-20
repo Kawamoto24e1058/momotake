@@ -98,6 +98,45 @@ export const updateOrderStatus = async (id: string, status: OrderStatus): Promis
 };
 
 /**
+ * 実費とレシート情報を更新します
+ */
+export const updateOrderReimbursement = async (orderId: string, actualCost: number, receiptUrl: string) => {
+  const orderRef = doc(db, 'orders', orderId);
+  await updateDoc(orderRef, {
+    actualCost,
+    receiptUrl,
+    updatedAt: new Date().toISOString()
+  });
+};
+
+/**
+ * 実費を承認します
+ */
+export const approveOrderCost = async (orderId: string) => {
+  const orderRef = doc(db, 'orders', orderId);
+  await updateDoc(orderRef, {
+    costApproved: true,
+    updatedAt: new Date().toISOString()
+  });
+};
+
+/**
+ * 依頼を完了にします
+ */
+export const completeOrder = async (orderId: string) => {
+  try {
+    const docRef = doc(db, ORDERS_COLLECTION, orderId);
+    await updateDoc(docRef, {
+      status: 'completed', // Assuming 'completed' is a valid status
+      updatedAt: Date.now()
+    });
+  } catch (error) {
+    console.error('Error completing order:', error);
+    throw error;
+  }
+};
+
+/**
  * 特定の依頼の情報を取得します。
  */
 export const getOrder = async (orderId: string): Promise<Order | null> => {
