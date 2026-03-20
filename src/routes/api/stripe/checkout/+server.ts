@@ -30,6 +30,10 @@ export const POST = async ({ request }) => {
       mode: 'payment',
       payment_intent_data: {
         capture_method: 'manual', // 支払いの確定を保留（仮押さえ）
+        transfer_data: {
+          destination: 'acct_1Tcse1LxpY9xBTCF', // 送金先（配達員テストアカウント）
+        },
+        application_fee_amount: 100, // 運営手数料（100円固定、または計算ロジック適用）
         metadata: {
           orderId: orderId,
         },

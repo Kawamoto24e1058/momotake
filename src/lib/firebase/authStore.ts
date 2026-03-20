@@ -16,8 +16,10 @@ export const user = writable<User | null>(null);
 export const loading = writable<boolean>(true);
 
 // 認証状態の変化を監視
+let initialAuthChecked = false;
 onAuthStateChanged(auth, (u) => {
   user.set(u);
+  initialAuthChecked = true;
   loading.set(false);
 });
 

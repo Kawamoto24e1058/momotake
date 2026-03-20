@@ -9,6 +9,7 @@
 
   // ログインループ防止: 認証初期化を待ってから未ログインなら飛ばす
   $: if (browser && !$loading && !$user && $page.url.pathname !== '/login') {
+    // 完全に初期化が終わっており、かつユーザーがいない場合のみリダイレクト
     goto('/login');
   }
 
