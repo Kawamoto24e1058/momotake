@@ -5,45 +5,44 @@ if (!admin.apps.length) {
   try {
     const serviceAccountKey = env.FIREBASE_SERVICE_ACCOUNT_KEY;
     if (serviceAccountKey) {
-      console.log('[Firebase Admin] Attempting initialization with service account key...');
+      console.log('[Firebase Admin] Attempting initialization with deep cleaning...');
       
-      // JSON文字列のクリーンアップ: 改行コードのエスケープなどを処理
-      let cleanedKey = serviceAccountKey.trim();
-      if (cleanedKey.includes('\\n')) {
-        cleanedKey = cleanedKey.replace(/\\n/g, '\n');
-      }
+      // 1. 制御文字や目に見えない改行を徹底的に除去
+      // Bad control character (position 158) などのエラーを防ぐ
+      let cleanedKey = serviceAccountKey.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").trim();
 
       try {
         const serviceAccount = JSON.parse(cleanedKey);
         
-        // 個別のフィールドでも改行コードを修正（念のため）
+        // 2. プライベートキー内の改行コードを Google が認識できる形式 (\n) に戻す
         if (serviceAccount.private_key) {
           serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
         }
 
+        // 3. projectId を直接指定して確実に初期化
         admin.initializeApp({
           credential: admin.credential.cert(serviceAccount),
-          projectId: serviceAccount.project_id || 'momotake-2f30b' // 確実にプロジェクトIDを指定
+          projectId: "momotake-2f30b"
         });
-        console.log('[Firebase Admin] Initialized successfully with Service Account');
+        console.log('[Firebase Admin] Deep Cleaned Initialization SUCCESS');
       } catch (parseErr) {
-        console.error('[Firebase Admin] JSON Parse Error. Falling back to default:', parseErr);
+        console.error('[Firebase Admin] JSON Parse ERROR after cleaning:', parseErr);
+        // フォールバック: プロジェクトIDのみで初期化
         admin.initializeApp({
-          projectId: 'momotake-2f30b'
+          projectId: "momotake-2f30b"
         });
       }
     } else {
-      console.log('[Firebase Admin] No service account key found. Using default application credentials.');
+      console.warn('[Firebase Admin] FIREBASE_SERVICE_ACCOUNT_KEY is missing');
       admin.initializeApp({
-        projectId: 'momotake-2f30b'
+        projectId: "momotake-2f30b"
       });
     }
   } catch (err) {
-    console.error('[Firebase Admin] Critical Initialization Error:', err);
+    console.error('[Firebase Admin] CRITICAL INIT ERROR:', err);
   }
 } else {
-  // すでに初期化済みの場合は既存のアプリを使用（二重初期化防止）
-  console.log('[Firebase Admin] Already initialized. Using existing app instance.');
+  console.log('[Firebase Admin] App already exists.');
 }
 
 export const adminDb = admin.firestore();
