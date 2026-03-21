@@ -60,27 +60,45 @@ export const POST = async ({ request }) => {
     });
 
     // Firestore にデータを保存 (Admin SDK を利用)
-    // フロントエンドで作成したID をドキュメントIDとして使用
     try {
-      console.log(`[Firestore] Saving order ${orderId} with PI: ${session.payment_intent}`);
-      await adminDb.collection('orders').doc(orderId).set({
+      console.log(`[Firestore] Attempting to save order ${orderId}...`);
+      const orderDocRef = adminDb.collection('orders').doc(orderId);
+      
+      const saveData = {
         ...orderData,
         stripeSessionId: session.id,
-        paymentIntentId: session.payment_intent, // セッションからPI IDを保存
+        paymentIntentId: session.payment_intent,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        status: 'pending_payment' // 初期ステータス
-      });
+        status: 'pending_payment'
+      };
+
+      console.log(`[Firestore] Writing data for ${orderId}: PI=${session.payment_intent}`);
+      await orderDocRef.set(saveData);
       
-      // 保存後の確認 (念のため)
-      const verifyDoc = await adminDb.collection('orders').doc(orderId).get();
-      if (!verifyDoc.exists || !verifyDoc.data()?.paymentIntentId) {
-        throw new Error('Failed to verify paymentIntentId persistence');
+      // 保存後の即時確認
+      console.log(`[Firestore] Verifying persistence for ${orderId}...`);
+      const verifyDoc = await orderDocRef.get();
+      
+      if (!verifyDoc.exists) {
+        console.error(`[Firestore] ERROR: Document ${orderId} does not exist after set()!`);
+        throw new Error(`Persistence verification failed: Document ${orderId} not found`);
+      }
+
+      const savedData = verifyDoc.data();
+      if (!savedData?.paymentIntentId) {
+        console.error(`[Firestore] ERROR: paymentIntentId is missing in saved document:`, savedData);
+        throw new Error('Persistence verification failed: paymentIntentId missing');
       }
       
-      console.log(`[Firestore] Order persistence verified for: ${orderId}`);
+      console.log(`[Firestore] SUCCESS: Order ${orderId} saved and verified.`);
     } catch (dbErr: any) {
-      console.error(`[Firestore] Error saving/verifying order ${orderId}:`, dbErr);
+      console.error(`[Firestore] CRITICAL ERROR saving/verifying order ${orderId}:`, {
+        message: dbErr.message,
+        stack: dbErr.stack,
+        orderId: orderId,
+        paymentIntentId: session.payment_intent
+      });
       throw dbErr;
     }
 
