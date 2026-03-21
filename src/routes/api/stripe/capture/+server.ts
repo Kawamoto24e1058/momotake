@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { STRIPE_SECRET_KEY } from '$env/static/private';
 import Stripe from 'stripe';
-import { getOrder, updateOrderStatus } from '$lib/firebase/orderStore';
+import { adminDb } from '$lib/server/firebase-admin';
 import { calculatePlatformFee } from '$lib/utils/feeCalculator';
 
 const stripe = new Stripe(STRIPE_SECRET_KEY);
@@ -14,14 +14,18 @@ export const POST = async ({ request }) => {
       return json({ error: 'Order ID is required' }, { status: 400 });
     }
 
-    // 1. 注文情報を取得
-    const order = await getOrder(orderId);
-    if (!order) {
+    // 1. 注文情報を取得 (Admin SDKを使用)
+    const orderDoc = await adminDb.collection('orders').doc(orderId).get();
+    if (!orderDoc.exists) {
       return json({ error: 'Order not found' }, { status: 404 });
     }
+    const order = { id: orderDoc.id, ...orderDoc.data() } as any;
 
     if (!order.paymentIntentId) {
-      return json({ error: 'No payment intent associated with this order' }, { status: 400 });
+      console.error(`[Stripe Capture] Missing PaymentIntent for order: ${orderId}`);
+      return json({ 
+        error: '決済情報（Payment Intent）が見つかりません。依頼を最初からやり直してください。' 
+      }, { status: 400 });
     }
 
     // 2. 金額の合計（報酬 + 実費）と手数料を計算
@@ -36,8 +40,11 @@ export const POST = async ({ request }) => {
       application_fee_amount: fee,
     });
 
-    // 4. ステータス更新
-    await updateOrderStatus(orderId, 'completed');
+    // 4. ステータス更新 (Admin SDKを使用)
+    await adminDb.collection('orders').doc(orderId).update({
+      status: 'completed',
+      updatedAt: Date.now()
+    });
 
     return json({ success: true, intentId: intent.id });
   } catch (err: any) {

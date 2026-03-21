@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import { fade, fly, slide } from 'svelte/transition';
   import { user } from '$lib/firebase/authStore';
-  import { createOrder } from '$lib/firebase/orderStore';
 
   // カテゴリー定義
   const categories = [
@@ -24,6 +23,9 @@
   let rewardAmount = 500;
   let isSubmitting = false;
   let errorMessage = '';
+
+  // 期限設定 (デフォルト1時間後)
+  let expirationDate = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16);
 
   // サジェスト関連
   let pickupSuggestions: string[] = [];
@@ -88,31 +90,36 @@
     errorMessage = '';
 
     try {
-      const orderId = await createOrder({
+      const tempOrderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      
+      const orderData = {
         clientId: $user.uid,
         title: itemDescription || 'おつかい依頼',
         description: `【${categories.find(c => c.id === selectedCategory)?.label}】集荷: ${pickupLocation} / お届け: ${dropoffLocation}`,
         reward: rewardAmount,
-        status: 'pending_payment',
         pickupLocationId: 'custom',
         dropoffLocationId: 'custom',
         pickupLocationName: pickupLocation,
         dropoffLocationName: dropoffLocation,
-      });
+        expiresAt: new Date(expirationDate).getTime(),
+      };
 
       const response = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orderId,
+          orderId: tempOrderId,
           title: `Campus Hub 依頼: ${itemDescription}`,
-          amount: rewardAmount
+          amount: rewardAmount,
+          orderData: orderData
         })
       });
 
-      const { url } = await response.json();
+      const { url, error } = await response.json();
+      if (error) throw new Error(error);
       if (url) window.location.href = url;
     } catch (err: any) {
+      console.error('Order Error:', err);
       errorMessage = '依頼の作成に失敗しました。再度お試しください。';
     } finally {
       isSubmitting = false;
@@ -235,6 +242,17 @@
             step="100"
             class="w-full p-4 rounded-xl border border-stone-100 bg-white/50 focus:ring-2 focus:ring-pink-300 focus:outline-none transition-all text-xl font-black"
           />
+        </div>
+
+        <div class="space-y-2">
+          <label for="expires" class="text-xs font-black text-stone-400 uppercase tracking-widest ml-1">依頼の有効期限</label>
+          <input 
+            id="expires"
+            type="datetime-local" 
+            bind:value={expirationDate}
+            class="w-full p-4 rounded-xl border border-stone-100 bg-white/50 focus:ring-2 focus:ring-pink-300 focus:outline-none transition-all"
+          />
+          <p class="text-[10px] text-stone-400 ml-1">※この時刻までに配達員が決まらない場合、自動的にキャンセルされます。</p>
         </div>
       </div>
 

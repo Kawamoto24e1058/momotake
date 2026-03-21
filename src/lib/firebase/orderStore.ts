@@ -14,7 +14,7 @@ import {
   type DocumentSnapshot, 
   FirestoreError 
 } from 'firebase/firestore';
-import type { Order, OrderStatus } from '../types/order';
+import type { Order, OrderStatus, Message } from '../types/order';
 
 const ORDERS_COLLECTION = 'orders';
 
@@ -84,11 +84,12 @@ export const getOrdersByRole = async (userId: string, role: 'client' | 'delivery
 /**
  * 依頼のステータスを更新します。
  */
-export const updateOrderStatus = async (id: string, status: OrderStatus): Promise<void> => {
+export const updateOrderStatus = async (id: string, status: OrderStatus, extraData: Partial<Order> = {}): Promise<void> => {
   try {
     const docRef = doc(db, ORDERS_COLLECTION, id);
     await updateDoc(docRef, { 
       status,
+      ...extraData,
       updatedAt: Date.now()
     });
   } catch (error) {
@@ -169,5 +170,77 @@ export const subscribeToOrder = (id: string, callback: (order: Order | null) => 
     }
   }, (error: FirestoreError) => {
     console.error('Error subscribing to order:', error);
+  });
+};
+
+/**
+ * 自分の依頼一覧をリアルタイム購読します。
+ */
+export const subscribeMyOrders = (userId: string, role: 'client' | 'delivery', callback: (orders: Order[]) => void) => {
+  const field = role === 'client' ? 'clientId' : 'deliveryId';
+  const q = query(
+    collection(db, ORDERS_COLLECTION),
+    where(field, '==', userId),
+    orderBy('createdAt', 'desc')
+  );
+  
+  return onSnapshot(q, (snapshot) => {
+    const orders = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Order[];
+    callback(orders);
+  });
+};
+
+/**
+ * 募集中の依頼一覧をリアルタイム購読します。
+ */
+export const subscribeOpenOrders = (callback: (orders: Order[]) => void) => {
+  const q = query(
+    collection(db, ORDERS_COLLECTION),
+    where('status', '==', 'open'),
+    orderBy('createdAt', 'desc')
+  );
+  
+  return onSnapshot(q, (snapshot) => {
+    const orders = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Order[];
+    callback(orders);
+  });
+};
+
+/**
+ * チャットメッセージを送信します。
+ */
+export const sendMessage = async (orderId: string, text: string, senderId: string): Promise<void> => {
+  try {
+    const messagesRef = collection(db, ORDERS_COLLECTION, orderId, 'messages');
+    await addDoc(messagesRef, {
+      text,
+      senderId,
+      createdAt: Date.now()
+    });
+  } catch (error) {
+    console.error('Error sending message:', error);
+    throw error;
+  }
+};
+
+/**
+ * チャットメッセージをリアルタイム購読します。
+ */
+export const subscribeToMessages = (orderId: string, callback: (messages: Message[]) => void) => {
+  const messagesRef = collection(db, ORDERS_COLLECTION, orderId, 'messages');
+  const q = query(messagesRef, orderBy('createdAt', 'asc'));
+  
+  return onSnapshot(q, (snapshot) => {
+    const messages = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Message[];
+    callback(messages);
   });
 };

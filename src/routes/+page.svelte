@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { user } from '$lib/firebase/authStore';
-  import { getOrdersByRole, getOpenOrders } from '$lib/firebase/orderStore';
+  import { subscribeMyOrders, subscribeOpenOrders } from '$lib/firebase/orderStore';
   import type { Order } from '$lib/types/order';
   import { fade, fly } from 'svelte/transition';
   import { PUBLIC_STRIPE_CONNECT_ACCOUNT_ID } from '$env/static/public';
@@ -10,31 +10,71 @@
   let myOrders: Order[] = [];
   let availableOrders: Order[] = [];
   let isLoading = true;
+  let unsubscribe: (() => void) | null = null;
 
-  $: if ($user) {
-    loadData();
+  const statusMap: Record<string, { label: string, color: string }> = {
+    'pending_payment': { label: 'お支払い待ち', color: 'bg-stone-100 text-stone-500' },
+    'open': { label: '配達員募集中！', color: 'bg-pink-100 text-pink-600 animate-pulse border-pink-200' },
+    'active': { label: '配達中...', color: 'bg-orange-100 text-orange-600 border-orange-200' },
+    'completed': { label: '配達完了', color: 'bg-emerald-100 text-emerald-600 border-emerald-200' },
+    'expired': { label: '期限切れ', color: 'bg-red-100 text-red-600 border-red-200' },
+    'cancelled': { label: 'キャンセル', color: 'bg-stone-200 text-stone-600' }
+  };
+
+  function sortOrders(orders: Order[]) {
+    const priority: Record<string, number> = {
+      'open': 0,
+      'active': 1,
+      'pending_payment': 2,
+      'completed': 3,
+      'expired': 4,
+      'cancelled': 5
+    };
+
+    return [...orders].sort((a, b) => {
+      const pA = priority[a.status] ?? 99;
+      const pB = priority[b.status] ?? 99;
+      if (pA !== pB) return pA - pB;
+      return b.createdAt - a.createdAt;
+    });
   }
 
-  async function loadData() {
+  function handleSubscription() {
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
+
     if (!$user) return;
+    
     isLoading = true;
-    try {
-      if (activeTab === 'order') {
-        myOrders = await getOrdersByRole($user.uid, 'client');
-      } else {
-        availableOrders = await getOpenOrders();
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      isLoading = false;
+    if (activeTab === 'order') {
+      unsubscribe = subscribeMyOrders($user.uid, 'client', (orders) => {
+        myOrders = sortOrders(orders);
+        isLoading = false;
+      });
+    } else {
+      unsubscribe = subscribeOpenOrders((orders) => {
+        availableOrders = sortOrders(orders);
+        isLoading = false;
+      });
     }
   }
 
-  // タブ切り替え時にデータを再読み込み
-  $: {
-    if (activeTab) loadData();
+  function formatTime(ts: number) {
+    if (!ts) return '';
+    return new Date(ts).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
   }
+
+  $: if ($user || activeTab) {
+    handleSubscription();
+  }
+
+  onMount(() => {
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  });
 </script>
 
 <div class="min-h-screen bg-pink-50/20 p-4 sm:p-8 animate-mesh">
@@ -102,16 +142,33 @@
           {:else}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               {#each myOrders as order (order.id)}
-                <a href="/orders/{order.id}" class="campus-card hover:translate-y-[-2px] transition-transform">
+                <a href="/orders/{order.id}" class="campus-card hover:translate-y-[-2px] transition-transform border border-stone-100 group relative overflow-hidden">
+                  {#if order.status === 'open'}
+                    <div class="absolute top-0 right-0 w-16 h-16 -mr-8 -mt-8 bg-pink-500/10 rounded-full blur-2xl group-hover:bg-pink-500/20 transition-all"></div>
+                  {/if}
+                  
                   <div class="flex justify-between items-start mb-4">
-                    <h3 class="font-black text-stone-800 line-clamp-1">{order.title}</h3>
-                    <span class="text-xs px-2 py-1 rounded-full bg-stone-100 font-bold uppercase">{order.status}</span>
-                  </div>
-                  <div class="flex justify-between items-end">
-                    <div class="text-[10px] text-stone-400 font-bold uppercase tracking-widest">
-                      {new Date(order.createdAt).toLocaleDateString()}
+                    <div class="space-y-1">
+                      <h3 class="font-black text-stone-800 line-clamp-1 group-hover:text-pink-500 transition-colors">{order.title}</h3>
+                      {#if order.expiresAt && (order.status === 'open' || order.status === 'active')}
+                        <p class="text-[9px] font-bold text-orange-400 uppercase tracking-tight">
+                          期限: {formatTime(order.expiresAt)}まで
+                        </p>
+                      {/if}
                     </div>
-                    <div class="text-xl font-black text-stone-800">¥{order.reward.toLocaleString()}</div>
+                    <span class="text-[10px] px-2.5 py-1 rounded-full font-black border {statusMap[order.status]?.color || 'bg-stone-100 text-stone-500 border-stone-200'} shadow-sm">
+                      {statusMap[order.status]?.label || order.status}
+                    </span>
+                  </div>
+                  
+                  <div class="flex justify-between items-end mt-auto">
+                    <div class="text-[10px] text-stone-400 font-bold uppercase tracking-widest flex items-center space-x-1">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
+                      </svg>
+                      <span>{new Date(order.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    <div class="text-2xl font-black text-stone-800 tabular-nums">¥{order.reward.toLocaleString()}</div>
                   </div>
                 </a>
               {/each}
@@ -168,6 +225,11 @@
                     <div class="text-xs text-stone-500 font-bold">
                       {order.pickupLocationName || '場所不明'} ➔ {order.dropoffLocationName || '場所不明'}
                     </div>
+                    {#if order.expiresAt}
+                      <p class="text-[9px] font-bold text-orange-400 uppercase">
+                        期限: {formatTime(order.expiresAt)}まで
+                      </p>
+                    {/if}
                   </div>
                   <div class="mt-4 sm:mt-0 flex items-center space-x-6">
                     <div class="text-2xl font-black text-stone-800 group-hover:text-pink-500 transition-colors">

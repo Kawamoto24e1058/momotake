@@ -1,4 +1,4 @@
-export type OrderStatus = 'pending_payment' | 'open' | 'active' | 'submitted' | 'completed' | 'cancelled';
+export type OrderStatus = 'pending_payment' | 'open' | 'active' | 'submitted' | 'completed' | 'cancelled' | 'expired';
 
 export interface Order {
   id: string;
@@ -19,4 +19,14 @@ export interface Order {
   updatedAt: number;
   stripeSessionId?: string;
   paymentIntentId?: string;
+  expiresAt: number; // 期限 (Timestamp)
+  acceptedAt?: number; // 受諾時刻
+  reportedAt?: number; // 未着報告時刻
+}
+
+export interface Message {
+  id: string;
+  text: string;
+  senderId: string;
+  createdAt: number;
 }

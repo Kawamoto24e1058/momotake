@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { updateOrderStatus, getOrder } from '$lib/firebase/orderStore';
+import { adminDb } from '$lib/server/firebase-admin';
 import { calculatePlatformFee } from '$lib/utils/feeCalculator';
 import Stripe from 'stripe';
 import { STRIPE_SECRET_KEY } from '$env/static/private';
@@ -15,15 +15,15 @@ export const POST: RequestHandler = async ({ request }) => {
       return json({ error: 'Order ID is required' }, { status: 400 });
     }
 
-    // 1. 依頼情報を取得
-    const order = await getOrder(orderId);
-    if (!order) {
+    // 1. 依頼情報を取得 (Admin SDKを使用)
+    const orderDoc = await adminDb.collection('orders').doc(orderId).get();
+    if (!orderDoc.exists) {
       return json({ error: 'Order not found' }, { status: 404 });
     }
+    const order = orderDoc.data() as any;
 
     if (order.status !== 'active' && order.status !== 'submitted' && order.status !== 'open') {
       // NOTE: For testing purposes, we allow completion from 'open' if needed, but usually it should be 'active'
-      // Adjusting to allow transition for the new flow
     }
 
     // 2. Stripe 決済（キャプチャ）の実行
@@ -48,8 +48,11 @@ export const POST: RequestHandler = async ({ request }) => {
       }
     }
 
-    // 3. Firestore ステータスを「完了」に更新
-    await updateOrderStatus(orderId, 'completed');
+    // 3. Firestore ステータスを「完了」に更新 (Admin SDKを使用)
+    await adminDb.collection('orders').doc(orderId).update({
+      status: 'completed',
+      updatedAt: Date.now()
+    });
 
     return json({ success: true });
   } catch (err: any) {

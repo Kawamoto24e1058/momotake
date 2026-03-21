@@ -1,7 +1,16 @@
 {
 	"/": [],
+	"/api/orders/cleanup-expired": [
+		"src/routes/api/orders/cleanup-expired/+server.ts"
+	],
+	"/api/orders/cleanup-test-data": [
+		"src/routes/api/orders/cleanup-test-data/+server.ts"
+	],
 	"/api/orders/complete": [
 		"src/routes/api/orders/complete/+server.ts"
+	],
+	"/api/stripe/cancel": [
+		"src/routes/api/stripe/cancel/+server.ts"
 	],
 	"/api/stripe/capture": [
 		"src/routes/api/stripe/capture/+server.ts"

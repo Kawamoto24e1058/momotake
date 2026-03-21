@@ -1,16 +1,17 @@
 import { json } from '@sveltejs/kit';
 import { STRIPE_SECRET_KEY } from '$env/static/private';
 import { PUBLIC_STRIPE_CONNECT_ACCOUNT_ID } from '$env/static/public';
+import { adminDb } from '$lib/server/firebase-admin';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(STRIPE_SECRET_KEY);
 
 export const POST = async ({ request }) => {
   try {
-    const { orderId, title, amount } = await request.json();
+    const { orderId, title, amount, orderData } = await request.json();
 
-    if (!orderId || !amount) {
-      return json({ error: 'Missing orderId or amount' }, { status: 400 });
+    if (!orderId || !amount || !orderData) {
+      return json({ error: 'Missing orderId, amount, or orderData' }, { status: 400 });
     }
 
     // デバッグログ: 送金先IDを確認
@@ -37,7 +38,7 @@ export const POST = async ({ request }) => {
         transfer_data: {
           destination: PUBLIC_STRIPE_CONNECT_ACCOUNT_ID, // 送金先（環境変数から取得）
         },
-        application_fee_amount: 100, // 運営手数料（100円固定、または計算ロジック適用）
+        application_fee_amount: Math.max(50, Math.floor(amount * 0.1)), // 手数料10% (最低50円)
         metadata: {
           orderId: orderId,
         },
@@ -46,6 +47,31 @@ export const POST = async ({ request }) => {
       success_url: `${request.headers.get('origin')}/orders/${orderId}?success=true`,
       cancel_url: `${request.headers.get('origin')}/order`,
     });
+
+    // Firestore にデータを保存 (Admin SDK を利用)
+    // フロントエンドで作成したID をドキュメントIDとして使用
+    try {
+      console.log(`[Firestore] Saving order ${orderId} with PI: ${session.payment_intent}`);
+      await adminDb.collection('orders').doc(orderId).set({
+        ...orderData,
+        stripeSessionId: session.id,
+        paymentIntentId: session.payment_intent, // セッションからPI IDを保存
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        status: 'pending_payment' // 初期ステータス
+      });
+      
+      // 保存後の確認 (念のため)
+      const verifyDoc = await adminDb.collection('orders').doc(orderId).get();
+      if (!verifyDoc.exists || !verifyDoc.data()?.paymentIntentId) {
+        throw new Error('Failed to verify paymentIntentId persistence');
+      }
+      
+      console.log(`[Firestore] Order persistence verified for: ${orderId}`);
+    } catch (dbErr: any) {
+      console.error(`[Firestore] Error saving/verifying order ${orderId}:`, dbErr);
+      throw dbErr;
+    }
 
     return json({ url: session.url });
   } catch (err: any) {
