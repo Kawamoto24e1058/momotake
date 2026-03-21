@@ -15,7 +15,27 @@ export const POST = async ({ request }) => {
     }
 
     // デバッグログ: 送金先IDを確認
-    console.log(`[Stripe Checkout] Creating session for destination: ${publicEnv.PUBLIC_STRIPE_CONNECT_ACCOUNT_ID}`);
+    const destination = publicEnv.PUBLIC_STRIPE_CONNECT_ACCOUNT_ID;
+    console.log(`[Stripe Checkout] Creating session for destination: ${destination}`);
+
+    // 手数料計算 (10%, 最低50円) - 確実に整数にする
+    const feeAmount = Math.round(Math.max(50, amount * 0.1));
+
+    // payment_intent_data の構築
+    const paymentIntentData: any = {
+      capture_method: 'manual', // 支払いの確定を保留（仮押さえ）
+      metadata: {
+        orderId: orderId,
+      },
+    };
+
+    // 送金先が設定されている場合のみ、手数料と送金データを追加
+    if (destination) {
+      paymentIntentData.transfer_data = {
+        destination: destination,
+      };
+      paymentIntentData.application_fee_amount = feeAmount;
+    }
 
     // Stripe Checkout Session の作成
     const session = await stripe.checkout.sessions.create({
@@ -33,16 +53,7 @@ export const POST = async ({ request }) => {
         },
       ],
       mode: 'payment',
-      payment_intent_data: {
-        capture_method: 'manual', // 支払いの確定を保留（仮押さえ）
-        transfer_data: {
-          destination: publicEnv.PUBLIC_STRIPE_CONNECT_ACCOUNT_ID, // 送金先（環境変数から取得）
-        },
-        application_fee_amount: Math.max(50, Math.floor(amount * 0.1)), // 手数料10% (最低50円)
-        metadata: {
-          orderId: orderId,
-        },
-      },
+      payment_intent_data: paymentIntentData,
       // リクエスト元のオリジンを取得してリダイレクトURLを構築
       success_url: `${request.headers.get('origin')}/orders/${orderId}?success=true`,
       cancel_url: `${request.headers.get('origin')}/order`,
