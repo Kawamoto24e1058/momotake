@@ -1,9 +1,9 @@
 import { json } from '@sveltejs/kit';
 import { adminDb } from '$lib/server/firebase-admin';
-import { STRIPE_SECRET_KEY } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import Stripe from 'stripe';
 
-const stripe = new Stripe(STRIPE_SECRET_KEY);
+const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 
 /**
  * 期限切れの依頼を掃除し、Stripeの仮押さえをキャンセルします。

@@ -1,9 +1,9 @@
 import { json } from '@sveltejs/kit';
-import { STRIPE_SECRET_KEY } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import Stripe from 'stripe';
 import { adminDb } from '$lib/server/firebase-admin';
 
-const stripe = new Stripe(STRIPE_SECRET_KEY);
+const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 
 export const POST = async ({ request }) => {
   try {

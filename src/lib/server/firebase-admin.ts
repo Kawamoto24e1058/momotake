@@ -1,12 +1,12 @@
 import admin from 'firebase-admin';
-import { FIREBASE_SERVICE_ACCOUNT_KEY } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 
 if (!admin.apps.length) {
   try {
-    if (FIREBASE_SERVICE_ACCOUNT_KEY) {
+    const serviceAccountKey = env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    if (serviceAccountKey) {
       // サービスアカウントJSONをパース
-      // 文字列として直接渡された場合やダブルクォートで囲まれている場合に対応
-      const serviceAccount = JSON.parse(FIREBASE_SERVICE_ACCOUNT_KEY);
+      const serviceAccount = JSON.parse(serviceAccountKey);
       
       // private_keyの改行コードを正しく処理
       if (serviceAccount.private_key) {
