@@ -61,44 +61,17 @@ export const POST = async ({ request }) => {
 
     // Firestore にデータを保存 (Admin SDK を利用)
     try {
-      console.log(`[Firestore] Attempting to save order ${orderId}...`);
-      const orderDocRef = adminDb.collection('orders').doc(orderId);
-      
-      const saveData = {
+      console.log(`[Firestore] Saving order ${orderId} with sessionId: ${session.id}`);
+      await adminDb.collection('orders').doc(orderId).set({
         ...orderData,
         stripeSessionId: session.id,
-        paymentIntentId: session.payment_intent,
+        paymentIntentId: session.payment_intent || null, // あれば保存、なければ null
         createdAt: Date.now(),
         updatedAt: Date.now(),
         status: 'pending_payment'
-      };
-
-      console.log(`[Firestore] Writing data for ${orderId}: PI=${session.payment_intent}`);
-      await orderDocRef.set(saveData);
-      
-      // 保存後の即時確認
-      console.log(`[Firestore] Verifying persistence for ${orderId}...`);
-      const verifyDoc = await orderDocRef.get();
-      
-      if (!verifyDoc.exists) {
-        console.error(`[Firestore] ERROR: Document ${orderId} does not exist after set()!`);
-        throw new Error(`Persistence verification failed: Document ${orderId} not found`);
-      }
-
-      const savedData = verifyDoc.data();
-      if (!savedData?.paymentIntentId) {
-        console.error(`[Firestore] ERROR: paymentIntentId is missing in saved document:`, savedData);
-        throw new Error('Persistence verification failed: paymentIntentId missing');
-      }
-      
-      console.log(`[Firestore] SUCCESS: Order ${orderId} saved and verified.`);
-    } catch (dbErr: any) {
-      console.error(`[Firestore] CRITICAL ERROR saving/verifying order ${orderId}:`, {
-        message: dbErr.message,
-        stack: dbErr.stack,
-        orderId: orderId,
-        paymentIntentId: session.payment_intent
       });
+    } catch (dbErr: any) {
+      console.error(`[Firestore] Error saving order ${orderId}:`, dbErr.message);
       throw dbErr;
     }
 
