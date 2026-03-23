@@ -39,6 +39,7 @@
  */
 declare module '$env/static/private' {
 	export const FIREBASE_SERVICE_ACCOUNT_KEY: string;
+	export const GOOGLE_GENAI_API_KEY: string;
 	export const STRIPE_SECRET_KEY: string;
 	export const TERM_PROGRAM: string;
 	export const NODE: string;
@@ -196,6 +197,7 @@ declare module '$env/static/public' {
 declare module '$env/dynamic/private' {
 	export const env: {
 		FIREBASE_SERVICE_ACCOUNT_KEY: string;
+		GOOGLE_GENAI_API_KEY: string;
 		STRIPE_SECRET_KEY: string;
 		TERM_PROGRAM: string;
 		NODE: string;

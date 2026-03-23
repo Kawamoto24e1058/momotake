@@ -10,34 +10,7 @@ export const POST = async ({ request }) => {
   try {
     const { orderId, title, amount, orderData } = await request.json();
 
-    if (!orderId || !amount || !orderData) {
-      return json({ error: 'Missing orderId, amount, or orderData' }, { status: 400 });
-    }
-
-    // デバッグログ: 送金先IDを確認
-    const destination = publicEnv.PUBLIC_STRIPE_CONNECT_ACCOUNT_ID;
-    console.log(`[Stripe Checkout] Creating session for destination: ${destination}`);
-
-    // 手数料計算 (10%, 最低50円) - 確実に整数にする
-    const feeAmount = Math.round(Math.max(50, amount * 0.1));
-
-    // payment_intent_data の構築
-    const paymentIntentData: any = {
-      capture_method: 'manual', // 支払いの確定を保留（仮押さえ）
-      metadata: {
-        orderId: orderId,
-      },
-    };
-
-    // 送金先が設定されている場合のみ、手数料と送金データを追加
-    if (destination) {
-      paymentIntentData.transfer_data = {
-        destination: destination,
-      };
-      paymentIntentData.application_fee_amount = feeAmount;
-    }
-
-    // Stripe Checkout Session の作成
+    // 1. Stripe Checkout Session の作成
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
@@ -53,31 +26,33 @@ export const POST = async ({ request }) => {
         },
       ],
       mode: 'payment',
-      payment_intent_data: paymentIntentData,
-      // リクエスト元のオリジンを取得してリダイレクトURLを構築
+      payment_intent_data: {
+        capture_method: 'manual',
+        transfer_data: {
+          destination: publicEnv.PUBLIC_STRIPE_CONNECT_ACCOUNT_ID,
+        },
+        application_fee_amount: Math.round(Math.max(50, orderData.reward * 0.1)),
+        metadata: { orderId }
+      },
       success_url: `${request.headers.get('origin')}/orders/${orderId}?success=true`,
       cancel_url: `${request.headers.get('origin')}/order`,
     });
 
-    // Firestore にデータを保存 (Admin SDK を利用)
-    try {
-      console.log(`[Firestore] Saving order ${orderId} with sessionId: ${session.id}`);
-      await adminDb.collection('orders').doc(orderId).set({
-        ...orderData,
-        stripeSessionId: session.id,
-        paymentIntentId: session.payment_intent || null, // あれば保存、なければ null
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        status: 'pending_payment'
-      });
-    } catch (dbErr: any) {
-      console.error(`[Firestore] Error saving order ${orderId}:`, dbErr.message);
-      throw dbErr;
-    }
+    // 2. Firestore に保存 (検証なし)
+    console.log(`[Firestore] Saving order ${orderId} with sessionId: ${session.id}`);
+    await adminDb.collection('orders').doc(orderId).set({
+      ...orderData,
+      stripeSessionId: session.id,
+      paymentIntentId: session.payment_intent || null,
+      status: 'pending_payment',
+      updatedAt: Date.now()
+    });
 
+    // 3. フロントエンドに URL を返す
     return json({ url: session.url });
+
   } catch (err: any) {
-    console.error('Stripe Checkout Error:', err);
+    console.error('Stripe Checkout Error:', err.message);
     return json({ error: err.message }, { status: 500 });
   }
 };

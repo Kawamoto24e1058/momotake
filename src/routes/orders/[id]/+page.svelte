@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick, onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { user } from '$lib/firebase/authStore';
   import { 
@@ -11,38 +11,65 @@
   import type { Order, Message } from '$lib/types/order';
   import { fade, fly } from 'svelte/transition';
   import QRCode from 'qrcode';
-  import { createWorker } from 'tesseract.js';
   import { calculatePlatformFee } from '$lib/utils/feeCalculator';
 
-  let orderId = $page.params.id || '';
-  let order: Order | null = null;
-  let qrCodeUrl = '';
-  let isLoading = true;
-  let loadError = false;
-  let retryCount = 0;
+  let { data } = $props();
+  const orderId = $derived($page.params.id || '');
+  let order = $state<Order | null>(null);
+  let qrCodeUrl = $state('');
+  let isLoading = $state(true);
+  let loadError = $state(false);
+  let retryCount = $state(0);
 
   // Reimbursement state
-  let receiptFile: File | null = null;
-  let isUploading = false;
-  let isScanning = false;
-  let inputActualCost = 0;
-  let uploadError = '';
-  let timeLeft = '';
-  let expirationTime = '';
+  let receiptFile = $state<File | null>(null);
+  let isUploading = $state(false);
+  let isScanning = $state(false);
+  let inputActualCost = $state(0);
+  let isOverBudget = $derived(inputActualCost > (order?.estimatedItemCost || 0));
+  let uploadError = $state('');
+  let localReceiptPreview = $state('');
+  let timeLeft = $state('');
+  let expirationTime = $state('');
   let countdownInterval: any;
-  let isDebugOpen = false;
+  let isDebugOpen = $state(false);
 
   // Chat State
-  let messages: Message[] = [];
-  let newMessage = '';
+  let messages = $state<Message[]>([]);
+  let newMessage = $state('');
   let chatUnsubscribe: (() => void) | null = null;
-  let chatContainer: HTMLElement;
+  let chatContainer = $state<HTMLElement | null>(null);
 
   function formatTime(ts: number) {
     return new Date(ts).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
   }
 
+  async function verifySession(id: string) {
+    isLoading = true;
+    try {
+      const res = await fetch('/api/stripe/verify-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: id })
+      });
+      const result = await res.json();
+      if (result.success) {
+        console.log('[Verify] Session verified and Firestore updated.');
+      } else {
+        console.warn('[Verify] Session not paid yet or update failed.', result);
+      }
+    } catch (err) {
+      console.error('[Verify] Error calling verify-session:', err);
+    } finally {
+      isLoading = false;
+    }
+  }
+
   onMount(() => {
+    isUploading = false;
+    isScanning = false;
+    localReceiptPreview = '';
+    
     if (!orderId) return;
     
     // Countdown logic
@@ -51,7 +78,6 @@
         const diff = order.expiresAt - Date.now();
         if (diff <= 0) {
           timeLeft = '期限切れ';
-          // 期限切れかつ募集中の場合、クライアントサイドからクリーンアップをトリガー（デモ用）
           if (order?.status === 'open') {
             triggerCleanup();
           }
@@ -65,15 +91,13 @@
 
     // Order subscription
     const unsubscribe = subscribeToOrder(orderId, (data) => {
-      // 成功リダイレクト時は paymentIntentId が降ってくるまで待機する（ポーリング）
       const isSuccessRedirect = $page.url.searchParams.get('success') === 'true';
-      if (isSuccessRedirect && data && !data.paymentIntentId && retryCount < 10) {
-        console.log(`Waiting for paymentIntentId propagation... (${retryCount + 1}/10)`);
-        isLoading = true;
-        setTimeout(() => {
-          retryCount++;
-        }, 1000);
-        return;
+      
+      // 成功リダイレクト (?success=true) かつ、決済情報がまだ未反映の場合のみ同期をかける
+      if (isSuccessRedirect && data && data.status === 'pending_payment' && !data.paymentIntentId && retryCount === 0) {
+        console.log(`[Sync] Success redirect detected. Triggering authoritative verify-session...`);
+        retryCount = 1; // 多重実行防止
+        verifySession(orderId);
       }
 
       if (data) {
@@ -137,6 +161,48 @@
     }
   }
 
+  /**
+   * AI解析用に画像をリサイズする (キャンバスを使用)
+   */
+  async function resizeImageForAI(file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.8): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height *= maxWidth / width;
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width *= maxHeight / height;
+              height = maxHeight;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return reject(new Error('Could not get canvas context'));
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          const dataUrl = canvas.toDataURL('image/jpeg', quality);
+          console.log('[Resize] Success. Dimensions:', width, 'x', height);
+          resolve(dataUrl);
+        } catch (e) {
+          reject(e);
+        }
+      };
+      img.onerror = () => reject(new Error('Image failed to load in resizeImageForAI'));
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
   async function handleTakeOrder() {
     if (!$user || !order || !orderId) return;
     await updateOrderStatus(orderId, 'active', {
@@ -196,49 +262,182 @@
   }
 
   async function handleFileUpload(e: Event) {
+    console.log('[Upload] Handler started');
     const target = e.target as HTMLInputElement;
-    if (!target.files || target.files.length === 0) return;
-    receiptFile = target.files[0];
+    if (!target.files || target.files.length === 0) {
+      console.log('[Upload] No files selected');
+      return;
+    }
     
-    isUploading = true;
+    let file = target.files[0];
+    if (!file) return;
+    
+    // HEIC (iPhone) Support
+    if (file.type === 'image/heic' || file.name.toLowerCase().endsWith('.heic')) {
+      console.log('[Upload] HEIC detected. Converting to JPEG...');
+      try {
+        isScanning = true; // Show loading early
+        const heic2any = (await import('heic2any')).default;
+        const convertedBlob = await heic2any({ 
+          blob: file, 
+          toType: 'image/jpeg',
+          quality: 0.8 
+        });
+        const resultBlob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
+        file = new File([resultBlob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+        console.log('[Upload] HEIC Conversion Success:', file.name, (file.size / 1024 / 1024).toFixed(2), 'MB');
+      } catch (err) {
+        console.error('[Upload] HEIC Conversion Failed:', err);
+        alert('画像の変換に失敗しました。別の形式でお試しください。');
+        isScanning = false;
+        return;
+      }
+    }
+
+    // Validate File Type
+    console.log('[Upload] File validation:', file.name, file.type, (file.size / 1024 / 1024).toFixed(2), 'MB');
+    if (!file.type.startsWith('image/')) {
+      alert('画像ファイルを選択してください。');
+      isScanning = false;
+      return;
+    }
+
+    receiptFile = file;
+    
+    // TEMPORARY: NO REVOKE to debug Failed to load issues
+    /*
+    if (localReceiptPreview && localReceiptPreview.startsWith('blob:')) {
+      URL.revokeObjectURL(localReceiptPreview);
+    }
+    */
+
+    localReceiptPreview = URL.createObjectURL(file);
+    console.log('[Preview] New Blob URL created:', localReceiptPreview);
+    await tick();
+
     isScanning = true;
+    isUploading = true;
     uploadError = '';
 
     try {
-      // 1. Upload to Storage
-      const storageRef = ref(storage, `orders/${orderId}/receipt_${Date.now()}.jpg`);
-      await uploadBytes(storageRef, receiptFile);
-      const url = await getDownloadURL(storageRef);
+      // 2. Resize and Convert to Base64 for Gemini API (Avoid 5MB+ payloads)
+      console.log('[Upload] Resizing image for AI analysis...');
+      const imageBase64 = await resizeImageForAI(file);
+      console.log('[Upload] Resize complete. Base64 length:', imageBase64.length);
 
-      // 2. OCR with Tesseract
-      const worker = await createWorker('jpn');
-      const { data: { text } } = await worker.recognize(receiptFile);
-      await worker.terminate();
-
-      // 3. Simple price extraction (regex for numbers)
-      const matches = text.match(/[0-9,]{3,}/g);
-      if (matches) {
-        // Try to find the largest number which is often the total
-        const prices = matches.map(m => parseInt(m.replace(/,/g, ''))).filter(p => p > 0);
-        if (prices.length > 0) {
-          inputActualCost = Math.max(...prices);
+      // 3. AI Extraction & Server-side Upload with Gemini
+      console.log(`[OCR] Calling Gemini API (Order: ${orderId})...`);
+      const res = await fetch('/api/extract-amount', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64, orderId })
+      });
+      
+      const result = await res.json();
+      const url = result.receiptUrl;
+      
+      if (res.ok && result.success) {
+        if (result.amount !== null) {
+          console.log(`[OCR] Amount: ¥${result.amount}`);
+          inputActualCost = result.amount;
+        } else {
+          alert('レシートから金額を読み取れませんでした。手動入力してください。');
         }
+      } else {
+        console.warn(`[OCR] API Error:`, result.error);
       }
 
-      // 4. Update Store
-      await updateOrderReimbursement(orderId, inputActualCost, url);
+      if (url) {
+        await updateOrderReimbursement(orderId, inputActualCost || 0, url);
+      }
     } catch (err: any) {
       uploadError = 'ファイルのアップロードまたはスキャンに失敗しました。';
-      console.error(err);
+      console.error('[Upload] CRITICAL ERROR:', err);
+      alert('エラーが発生しました。時間を置いて再度お試しください。');
     } finally {
       isUploading = false;
       isScanning = false;
+      console.log('[Upload] Handler finished. States reset.');
     }
   }
 
+  function handleResetReceipt() {
+    /* 
+    if (localReceiptPreview && localReceiptPreview.startsWith('blob:')) {
+      URL.revokeObjectURL(localReceiptPreview);
+    }
+    */
+    localReceiptPreview = '';
+    receiptFile = null;
+    isUploading = false;
+    isScanning = false;
+    inputActualCost = 0;
+    uploadError = '';
+    if (order) order.receiptUrl = '';
+    console.log('[Upload] Receipt state reset (Revoke disabled)');
+  }
+
+  onDestroy(() => {
+    // Temporary disable revoke for debugging
+    /*
+    if (localReceiptPreview && localReceiptPreview.startsWith('blob:')) {
+      URL.revokeObjectURL(localReceiptPreview);
+    }
+    */
+  });
+
   async function handleReimbursementSubmit() {
-    if (!order || !order.receiptUrl) return;
-    await updateOrderReimbursement(orderId, inputActualCost, order.receiptUrl);
+    console.log('[Payment] Confirm button clicked. Amount:', inputActualCost);
+    
+    if (isOverBudget) {
+      alert(`事前承認された上限額（¥${order?.estimatedItemCost}）を超えています。実費を調整するか、依頼主と相談してください。`);
+      return;
+    }
+
+    if (!confirm(`実費 ¥${inputActualCost.toLocaleString()} で請求を確定し、配達完了を報告しますか？`)) return;
+
+    isUploading = true;
+    uploadError = '';
+    
+    try {
+      // 1. Firestore を最新の入力値で更新 (Capture API は Firestore の値を参照するため)
+      console.log(`[Payment] Syncing Firestore: actualCost = ¥${inputActualCost}...`);
+      await updateOrderReimbursement(orderId, inputActualCost, order?.receiptUrl || '');
+
+      // 2. Stripe Capture 実行
+      const payload = { 
+        orderId,
+        paymentIntentId: order?.paymentIntentId,
+        amountToCapture: (order?.reward || 0) + inputActualCost
+      };
+      
+      console.log('[Payment] Triggering capture for order:', orderId);
+      console.log('[Payment] Payload for API:', JSON.stringify(payload));
+      
+      const res = await fetch('/api/stripe/capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      console.log(`[Payment] API Response status: ${res.status}`);
+      
+      if (!res.ok) {
+        const err = await res.json();
+        console.error('[Payment] API Error response:', err);
+        throw new Error(err.error || '決済の確定に失敗しました。');
+      }
+
+      console.log('[Payment] Capture success! Order completed.');
+      alert('請求が確定し、依頼が完了しました。お疲れ様でした！');
+      window.location.reload();
+    } catch (err: any) {
+      console.error('[Payment] Error during capture:', err);
+      uploadError = err.message;
+      alert(err.message);
+    } finally {
+      isUploading = false;
+    }
   }
 
   async function handleApproveCost() {
@@ -334,7 +533,7 @@
           </p>
         </div>
         <div class="pt-4 space-y-3 px-6">
-          <button on:click={() => window.location.reload()} class="campus-button-primary w-full py-3 text-sm">
+          <button onclick={() => window.location.reload()} class="campus-button-primary w-full py-3 text-sm">
             もう一度確認する
           </button>
           <a href="/" class="block text-xs text-stone-400 font-bold hover:text-stone-600 transition-colors">
@@ -364,18 +563,23 @@
           <h1 class="text-3xl font-black text-stone-800 tracking-tight leading-tight">{order.title}</h1>
         </header>
 
-        <section class="grid grid-cols-2 gap-6">
+        <section class="grid grid-cols-2 gap-6 bg-stone-50/50 p-6 rounded-2xl border border-stone-100">
           <div class="space-y-1">
-            <p class="text-[9px] font-black text-stone-400 uppercase tracking-widest">謝礼金額</p>
+            <p class="text-[9px] font-black text-stone-400 uppercase tracking-widest">獲得謝礼</p>
             <p class="text-3xl font-black text-stone-800">¥{order.reward.toLocaleString()}</p>
           </div>
-          {#if order.actualCost}
-            <div class="space-y-1 text-right">
-              <p class="text-[9px] font-black text-pink-400 uppercase tracking-widest">実費請求</p>
-              <p class="text-3xl font-black text-pink-500">¥{order.actualCost.toLocaleString()}</p>
-            </div>
-          {/if}
+          <div class="space-y-1 text-right">
+            <p class="text-[9px] font-black text-stone-400 uppercase tracking-widest">商品代の上限 (デポジット)</p>
+            <p class="text-3xl font-black text-emerald-600">¥{order.estimatedItemCost?.toLocaleString() || 0}</p>
+          </div>
         </section>
+
+        {#if order.actualCost}
+          <div class="flex justify-between items-center px-6 py-3 bg-pink-50 rounded-xl border border-pink-100" in:fade>
+            <p class="text-[10px] font-black text-pink-500 uppercase tracking-widest">実際の実費請求額</p>
+            <p class="text-xl font-black text-pink-600">¥{order.actualCost.toLocaleString()}</p>
+          </div>
+        {/if}
 
         <section class="space-y-4">
           <div class="bg-stone-50 p-4 rounded-xl space-y-3">
@@ -398,15 +602,26 @@
         <footer class="pt-6 space-y-6">
           {#if order.clientId === $user?.uid}
             <!-- Client View -->
-            {#if order.status === 'pending_payment'}
-              <div class="p-6 bg-orange-50 rounded-2xl border border-orange-100 space-y-4">
-                <p class="text-orange-600 text-sm font-bold text-center">決済が確定（キャプチャ）されていません。</p>
+            {#if order.status === 'active' && order.clientId === $user?.uid}
+              <div class="p-6 bg-emerald-50 rounded-2xl border border-emerald-100 space-y-4 shadow-sm" in:fade>
+                <div class="flex items-center space-x-2 text-emerald-600">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l5-5z" clip-rule="evenodd" />
+                  </svg>
+                  <span class="text-sm font-bold">配達完了（スキャン）後の確認</span>
+                </div>
+                <p class="text-xs text-stone-500">配達員が到着し、商品の受け渡しが完了したら下のボタンを押して決済を確定させてください。</p>
                 <button 
-                  on:click={handleCapture}
+                  onclick={handleCapture}
                   class="campus-button-primary w-full py-4 bg-emerald-500 hover:bg-emerald-600 shadow-emerald-200"
                 >
-                  配達完了を確認（売上を確定する）
+                  受取完了を確認（売上を確定する）
                 </button>
+              </div>
+            {:else if order.status === 'pending_payment'}
+              <div class="p-8 bg-stone-50 rounded-2xl text-center space-y-4 border border-stone-100">
+                <p class="text-sm text-stone-500 font-bold">お支払いの確認を待機中...</p>
+                <div class="animate-spin h-6 w-6 border-2 border-stone-300 border-t-stone-800 rounded-full mx-auto"></div>
               </div>
             {:else if order.status === 'open'}
               <div class="p-8 bg-pink-50 rounded-2xl text-center space-y-4 border border-pink-100">
@@ -453,7 +668,7 @@
                         </div>
                       </div>
 
-                      <button on:click={handleApproveCost} class="campus-button-primary w-full py-4">
+                      <button onclick={handleApproveCost} class="campus-button-primary w-full py-4">
                         金額を承認する
                       </button>
                     </div>
@@ -479,7 +694,7 @@
                       
                       <div class="pt-4 border-t border-stone-100">
                         <button 
-                          on:click={handleCapture}
+                          onclick={handleCapture}
                           class="campus-button-primary w-full py-4 bg-emerald-500 hover:bg-emerald-600 shadow-emerald-200"
                         >
                           受取完了を確認（売上を確定）
@@ -494,7 +709,7 @@
                     <div class="p-4 bg-stone-50 rounded-xl border border-stone-100 text-center">
                       <p class="text-[10px] text-stone-400 mb-2">配達員が現れない場合はこちら</p>
                       <button 
-                        on:click={handleReportNoShow}
+                        onclick={handleReportNoShow}
                         class="text-xs text-red-400 hover:text-red-600 font-bold underline transition-colors"
                       >
                         未着のためキャンセル・返金
@@ -512,7 +727,7 @@
             <!-- Delivery Crew View -->
             {#if order.status === 'open'}
               <button 
-                on:click={handleTakeOrder}
+                onclick={handleTakeOrder}
                 class="campus-button-primary w-full py-5 text-xl"
               >
                 この依頼を引き受ける
@@ -525,27 +740,50 @@
                     <h3 class="text-lg font-black text-stone-800">実費請求</h3>
                     <div class="text-right">
                       <p class="text-[9px] font-black text-stone-400 uppercase tracking-widest">獲得予定報酬</p>
-                      <p class="text-sm font-black text-emerald-500">¥{(order.reward - calculatePlatformFee(order.reward)).toLocaleString()} (手数料引去後)</p>
+                      <p class="text-sm font-black text-emerald-500">
+                        {#if order}
+                          ¥{(order.reward - calculatePlatformFee(order.reward)).toLocaleString()} (手数料引去後)
+                        {/if}
+                      </p>
                     </div>
                   </div>
                   
-                  {#if !order.receiptUrl}
-                    <div class="space-y-4">
-                      <label class="block w-full cursor-pointer">
-                        <div class="border-2 border-dashed border-stone-200 rounded-2xl p-8 text-center hover:border-pink-300 transition-colors group">
-                          <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mx-auto text-stone-300 group-hover:text-pink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                          <p class="mt-2 text-sm text-stone-400 font-bold">レシートを撮影・選択</p>
-                        </div>
-                        <input type="file" accept="image/*" capture="environment" class="hidden" on:change={handleFileUpload} disabled={isUploading} />
-                      </label>
+                   {#if !order.receiptUrl && !localReceiptPreview}
+                    <div class="space-y-4 p-4 border-2 border-dashed border-stone-200 rounded-2xl text-center">
+                      <p class="text-sm text-stone-400 font-bold mb-4">レシートを添付してください</p>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        capture="environment" 
+                        onchange={handleFileUpload} 
+                        class="block w-full text-sm text-stone-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-pink-50 file:text-pink-700 hover:file:bg-pink-100"
+                      />
                     </div>
                   {:else}
                     <div class="space-y-4">
                       <div class="aspect-[4/3] bg-stone-100 rounded-xl overflow-hidden relative">
-                        <img src={order.receiptUrl} alt="Preview" class="w-full h-full object-contain" />
+                        {#key localReceiptPreview}
+                          <img 
+                            src={localReceiptPreview || order?.receiptUrl} 
+                            alt="Receipt Preview" 
+                            class="w-full h-full object-contain"
+                            onerror={(e) => {
+                              const img = e.currentTarget as HTMLImageElement;
+                              console.error('[Image] Preview error. Length:', img.src.length, 'Source:', img.src.substring(0, 50));
+                            }}
+                          />
+                        {/key}
+                        
+                        <!-- Reset Button Overlay -->
+                        {#if !isScanning && !isUploading}
+                          <button 
+                            onclick={handleResetReceipt}
+                            class="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white text-[10px] font-black py-1 px-3 rounded-full backdrop-blur-sm transition-all shadow-lg active:scale-95"
+                          >
+                            画像を切り替え
+                          </button>
+                        {/if}
+
                         {#if isScanning}
                           <div class="absolute inset-0 bg-pink-500/20 backdrop-blur-sm flex items-center justify-center">
                             <div class="text-center text-white space-y-2">
@@ -557,20 +795,41 @@
                       </div>
                       
                       <div class="space-y-2">
-                        <label for="actualCost" class="text-[9px] font-black text-stone-400 uppercase tracking-widest ml-1">購入金額 (実費)</label>
+                        <div class="flex justify-between items-end ml-1">
+                          <label for="actualCost" class="text-[9px] font-black text-stone-400 uppercase tracking-widest">購入金額 (実費)</label>
+                          <span class="text-[9px] font-bold {isOverBudget ? 'text-red-500' : 'text-stone-400'}">
+                            デポジット上限: ¥{order?.estimatedItemCost?.toLocaleString() || 0}
+                          </span>
+                        </div>
                         <div class="flex items-center space-x-2">
-                          <span class="text-2xl font-black text-stone-300">¥</span>
+                          <span class="text-2xl font-black {isOverBudget ? 'text-red-300' : 'text-stone-300'}">¥</span>
                           <input 
                             id="actualCost"
                             type="number" 
                             bind:value={inputActualCost}
-                            class="w-full p-4 rounded-xl border border-stone-100 bg-stone-50 focus:ring-2 focus:ring-pink-300 focus:outline-none transition-all text-xl font-black"
+                            class="w-full p-4 rounded-xl border transition-all text-xl font-black {isOverBudget ? 'border-red-200 bg-red-50 text-red-600 focus:ring-red-300' : 'border-stone-100 bg-stone-50 focus:ring-pink-300 font-black text-stone-800'}"
                           />
                         </div>
+                        {#if isOverBudget}
+                          <p class="text-[10px] text-red-500 font-bold ml-1 animate-pulse" in:fade>
+                            ⚠️ 承認された上限額を超えています。差額は請求できません。
+                          </p>
+                        {/if}
                       </div>
 
-                      <button on:click={handleReimbursementSubmit} class="campus-button-secondary w-full py-3 text-sm">
-                        金額を更新する
+                      <button 
+                        onclick={handleReimbursementSubmit} 
+                        disabled={!inputActualCost || isScanning || isUploading || isOverBudget}
+                        class="campus-button-secondary w-full py-3 text-sm disabled:opacity-50 shadow-xl active:scale-[0.98] transition-all"
+                      >
+                        {#if isUploading}
+                          <div class="flex items-center justify-center space-x-2">
+                            <div class="animate-spin h-4 w-4 border-2 border-white/30 border-t-white rounded-full"></div>
+                            <span>処理中...</span>
+                          </div>
+                        {:else}
+                          {isOverBudget ? '上限超過のため請求不可' : '金額を確定して請求する'}
+                        {/if}
                       </button>
                     </div>
                   {/if}
@@ -599,8 +858,43 @@
                 {/if}
               </div>
             {:else if order.status === 'completed'}
-              <div class="p-6 bg-emerald-50 rounded-2xl text-center border border-emerald-100">
-                <p class="text-emerald-600 font-black">配達完了済み</p>
+              <div class="space-y-6" in:fade>
+                <div class="p-8 bg-emerald-50 rounded-3xl border-2 border-emerald-100 text-center space-y-6 shadow-sm">
+                  <div class="space-y-2">
+                    <div class="inline-flex items-center px-3 py-1 bg-emerald-100 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-widest">
+                      Transaction Completed
+                    </div>
+                    <h3 class="text-2xl font-black text-emerald-700">決済完了</h3>
+                  </div>
+
+                  <div class="p-6 bg-white rounded-2xl border border-emerald-100 space-y-4 text-left shadow-inner">
+                    <div class="flex justify-between items-center border-b border-stone-50 pb-3">
+                        <span class="text-xs font-bold text-stone-400">依頼主からの引き落とし総額</span>
+                        <span class="text-lg font-black text-stone-800">¥{(order.reward + (order.actualCost || 0)).toLocaleString()}</span>
+                    </div>
+
+                    <div class="space-y-3 pt-2">
+                        <p class="text-[9px] font-black text-stone-300 uppercase tracking-widest">あなたの受け取り内訳</p>
+                        
+                        <div class="flex justify-between items-center bg-stone-50 p-3 rounded-xl border border-stone-100">
+                            <span class="text-xs font-bold text-stone-500">立て替え分の回収</span>
+                            <span class="text-sm font-black text-stone-700">¥{(order.actualCost || 0).toLocaleString()}</span>
+                        </div>
+
+                        <div class="flex justify-between items-center bg-emerald-100/30 p-4 rounded-xl border border-emerald-100/50">
+                            <span class="text-xs font-black text-emerald-600">今回の純利益（お駄賃）</span>
+                            <div class="text-right">
+                                <span class="text-xl font-black text-emerald-700">¥{(order.reward - calculatePlatformFee(order.reward)).toLocaleString()}</span>
+                                <p class="text-[8px] font-bold text-emerald-500/70 ml-1">※手数料引去後</p>
+                            </div>
+                        </div>
+                    </div>
+                  </div>
+
+                  <p class="text-[10px] text-stone-400 font-bold italic">
+                    ※売上はマイページのウォレットから確認・引き出し可能です。
+                  </p>
+                </div>
               </div>
             {:else}
               <p class="text-center text-stone-400 italic">この依頼は他の方が対応中か、完了しています。</p>
@@ -611,7 +905,7 @@
         {#if order.clientId === $user?.uid && (order.status === 'open' || order.status === 'pending_payment')}
           <div class="pt-12 border-t border-stone-50 text-center">
             <button 
-              on:click={handleCancelOrder}
+              onclick={handleCancelOrder}
               class="px-8 py-3 rounded-xl border border-red-200 text-red-400 text-xs font-black uppercase tracking-widest hover:bg-red-50 hover:border-red-300 transition-all active:scale-95"
             >
               依頼を取り消す
@@ -666,13 +960,14 @@
                 <input 
                   type="text" 
                   bind:value={newMessage}
-                  on:keydown={(e) => e.key === 'Enter' && handleSendMessage()}
+                  onkeydown={(e) => e.key === 'Enter' && handleSendMessage()}
                   placeholder="メッセージを入力..."
                   class="flex-1 bg-transparent border-none outline-none px-2 text-sm text-stone-800 placeholder:text-stone-300"
                 />
                 <button 
-                  on:click={handleSendMessage}
+                  onclick={handleSendMessage}
                   disabled={!newMessage.trim()}
+                  aria-label="送信"
                   class="bg-pink-500 text-white p-2 rounded-xl hover:bg-pink-600 disabled:opacity-30 disabled:scale-95 transition-all shadow-md active:scale-90"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 rotate-90" viewBox="0 0 20 20" fill="currentColor">
@@ -695,7 +990,7 @@
   <!-- Admin Debug Panel -->
   <div class="fixed bottom-4 right-4 z-50">
     <button 
-      on:click={() => isDebugOpen = !isDebugOpen}
+      onclick={() => isDebugOpen = !isDebugOpen}
       class="bg-stone-800 text-stone-400 p-2 rounded-full hover:text-white transition-colors shadow-lg"
       title="Debug Tools"
     >
@@ -712,21 +1007,21 @@
         <p class="text-[10px] font-black text-stone-500 uppercase tracking-widest border-b border-stone-800 pb-2 mb-2">Admin Debug Info</p>
         
         <button 
-          on:click={debugAdvanceTime}
+          onclick={debugAdvanceTime}
           class="w-full text-left p-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-xs text-stone-300 font-bold transition-all"
         >
           時間を1時間進める ( acceptedAt )
         </button>
 
         <button 
-          on:click={debugExpire}
+          onclick={debugExpire}
           class="w-full text-left p-2 rounded-lg bg-stone-800 hover:bg-stone-700 text-xs text-stone-300 font-bold transition-all"
         >
           期限切れにする ( expiresAt )
         </button>
 
         <button 
-          on:click={debugForceComplete}
+          onclick={debugForceComplete}
           class="w-full text-left p-2 rounded-lg bg-pink-900/50 hover:bg-pink-900 text-xs text-pink-300 font-bold transition-all border border-pink-800/30"
         >
           完了（強制キャプチャ）

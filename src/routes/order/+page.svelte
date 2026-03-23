@@ -21,6 +21,7 @@
   let dropoffLocation = '';
   let itemDescription = '';
   let rewardAmount = 500;
+  let estimatedItemCost = 1000;
   let isSubmitting = false;
   let errorMessage = '';
 
@@ -97,6 +98,7 @@
         title: itemDescription || 'おつかい依頼',
         description: `【${categories.find(c => c.id === selectedCategory)?.label}】集荷: ${pickupLocation} / お届け: ${dropoffLocation}`,
         reward: rewardAmount,
+        estimatedItemCost: estimatedItemCost,
         pickupLocationId: 'custom',
         dropoffLocationId: 'custom',
         pickupLocationName: pickupLocation,
@@ -110,7 +112,7 @@
         body: JSON.stringify({
           orderId: tempOrderId,
           title: `Campus Hub 依頼: ${itemDescription}`,
-          amount: rewardAmount,
+          amount: rewardAmount + estimatedItemCost,
           orderData: orderData
         })
       });
@@ -232,16 +234,31 @@
           </div>
         </div>
 
-        <div class="space-y-2">
-          <label for="reward" class="text-xs font-black text-stone-400 uppercase tracking-widest ml-1">謝礼金額 (¥)</label>
-          <input 
-            id="reward"
-            type="number" 
-            bind:value={rewardAmount}
-            min="300"
-            step="100"
-            class="w-full p-4 rounded-xl border border-stone-100 bg-white/50 focus:ring-2 focus:ring-pink-300 focus:outline-none transition-all text-xl font-black"
-          />
+        <div class="grid grid-cols-2 gap-4">
+          <div class="space-y-2">
+            <label for="estimatedItemCost" class="text-xs font-black text-stone-400 uppercase tracking-widest ml-1">商品の予想金額 (上限額) (¥)</label>
+            <input 
+              id="estimatedItemCost"
+              type="number" 
+              bind:value={estimatedItemCost}
+              min="0"
+              step="100"
+              class="w-full p-4 rounded-xl border border-stone-100 bg-white/50 focus:ring-2 focus:ring-pink-300 focus:outline-none transition-all text-xl font-black"
+            />
+            <p class="text-[10px] text-stone-400 ml-1">※この額までなら配達員が確実に購入できます（残りは返金）</p>
+          </div>
+
+          <div class="space-y-2">
+            <label for="reward" class="text-xs font-black text-stone-400 uppercase tracking-widest ml-1">謝礼金額 (¥)</label>
+            <input 
+              id="reward"
+              type="number" 
+              bind:value={rewardAmount}
+              min="300"
+              step="100"
+              class="w-full p-4 rounded-xl border border-stone-100 bg-white/50 focus:ring-2 focus:ring-pink-300 focus:outline-none transition-all text-xl font-black"
+            />
+          </div>
         </div>
 
         <div class="space-y-2">

@@ -180,8 +180,7 @@ export const subscribeMyOrders = (userId: string, role: 'client' | 'delivery', c
   const field = role === 'client' ? 'clientId' : 'deliveryId';
   const q = query(
     collection(db, ORDERS_COLLECTION),
-    where(field, '==', userId),
-    orderBy('createdAt', 'desc')
+    where(field, '==', userId)
   );
   
   return onSnapshot(q, (snapshot) => {
@@ -199,8 +198,7 @@ export const subscribeMyOrders = (userId: string, role: 'client' | 'delivery', c
 export const subscribeOpenOrders = (callback: (orders: Order[]) => void) => {
   const q = query(
     collection(db, ORDERS_COLLECTION),
-    where('status', '==', 'open'),
-    orderBy('createdAt', 'desc')
+    where('status', '==', 'open')
   );
   
   return onSnapshot(q, (snapshot) => {

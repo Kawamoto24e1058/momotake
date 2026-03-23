@@ -1,5 +1,8 @@
 {
 	"/": [],
+	"/api/extract-amount": [
+		"src/routes/api/extract-amount/+server.ts"
+	],
 	"/api/orders/cleanup-expired": [
 		"src/routes/api/orders/cleanup-expired/+server.ts"
 	],
@@ -9,6 +12,9 @@
 	"/api/orders/complete": [
 		"src/routes/api/orders/complete/+server.ts"
 	],
+	"/api/stripe/balance": [
+		"src/routes/api/stripe/balance/+server.ts"
+	],
 	"/api/stripe/cancel": [
 		"src/routes/api/stripe/cancel/+server.ts"
 	],
@@ -17,6 +23,9 @@
 	],
 	"/api/stripe/checkout": [
 		"src/routes/api/stripe/checkout/+server.ts"
+	],
+	"/api/stripe/verify-session": [
+		"src/routes/api/stripe/verify-session/+server.ts"
 	],
 	"/login": [],
 	"/orders/[id]": [],

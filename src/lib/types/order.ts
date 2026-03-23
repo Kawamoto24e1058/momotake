@@ -6,7 +6,8 @@ export interface Order {
   deliveryId?: string;
   title: string;
   description: string;
-  reward: number; // in Yen
+  reward: number; // 謝礼 (in Yen)
+  estimatedItemCost: number; // 商品の予想代金 (事前承認上限)
   actualCost?: number; // 実費
   receiptUrl?: string; // レシート画像URL
   costApproved?: boolean; // 依頼主による承認

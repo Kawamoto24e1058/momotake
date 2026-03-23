@@ -23,9 +23,11 @@
   },
   "homepage": "https://github.com/Kawamoto24e1058/momotake#readme",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@sveltejs/kit": "^2.55.0",
     "firebase": "^12.11.0",
     "firebase-admin": "^13.7.0",
+    "heic2any": "^0.0.4",
     "html5-qrcode": "^2.3.8",
     "qrcode": "^1.5.4",
     "stripe": "^20.4.1",

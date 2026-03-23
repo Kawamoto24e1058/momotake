@@ -6,11 +6,17 @@
   import { fade, fly } from 'svelte/transition';
   import { env } from '$env/dynamic/public';
 
-  let activeTab: 'order' | 'deliver' = 'order';
-  let myOrders: Order[] = [];
-  let availableOrders: Order[] = [];
-  let isLoading = true;
+  let activeTab = $state<'order' | 'deliver'>('order');
+  let myOrders = $state<Order[]>([]);
+  let availableOrders = $state<Order[]>([]);
+  let activeRequests = $state<Order[]>([]);
+  let historyRequests = $state<Order[]>([]);
+  let isLoading = $state(true);
   let unsubscribe: (() => void) | null = null;
+
+  // Wallet State
+  let wallet = $state<{ available: number, pending: number, totalProfit: number } | null>(null);
+  let isBalanceLoading = $state(false);
 
   const statusMap: Record<string, { label: string, color: string }> = {
     'pending_payment': { label: 'お支払い待ち', color: 'bg-stone-100 text-stone-500' },
@@ -39,6 +45,14 @@
     });
   }
 
+  function filterOrders(orders: Order[]) {
+    const activeStatuses = ['open', 'active', 'pending_payment'];
+    const historyStatuses = ['completed', 'cancelled', 'expired'];
+    
+    activeRequests = orders.filter(o => activeStatuses.includes(o.status));
+    historyRequests = orders.filter(o => historyStatuses.includes(o.status));
+  }
+
   function handleSubscription() {
     if (unsubscribe) {
       unsubscribe();
@@ -51,6 +65,7 @@
     if (activeTab === 'order') {
       unsubscribe = subscribeMyOrders($user.uid, 'client', (orders) => {
         myOrders = sortOrders(orders);
+        filterOrders(myOrders);
         isLoading = false;
       });
     } else {
@@ -58,6 +73,22 @@
         availableOrders = sortOrders(orders);
         isLoading = false;
       });
+      fetchBalance();
+    }
+  }
+
+  async function fetchBalance() {
+    if (!$user) return;
+    isBalanceLoading = true;
+    try {
+      const res = await fetch(`/api/stripe/balance?uid=${$user.uid}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      wallet = data;
+    } catch (e) {
+      console.error('Failed to fetch balance', e);
+    } finally {
+      isBalanceLoading = false;
     }
   }
 
@@ -66,8 +97,29 @@
     return new Date(ts).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
   }
 
-  $: if ($user || activeTab) {
-    handleSubscription();
+  $effect(() => {
+    if ($user || activeTab) {
+      handleSubscription();
+    }
+  });
+
+  async function cancelOrder(orderId: string) {
+    if (!confirm('この依頼を取り消しますか？\n（決済の仮押さえも解除されます）')) return;
+    
+    try {
+      const res = await fetch('/api/stripe/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, reason: 'user_cancel' })
+      });
+      
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'キャンセルに失敗しました');
+      
+      alert('依頼を取り消しました。');
+    } catch (err: any) {
+      alert(`エラー: ${err.message}`);
+    }
   }
 
   onMount(() => {
@@ -101,13 +153,13 @@
       <!-- Role Switcher -->
       <div class="flex p-1 bg-stone-200/50 backdrop-blur-md rounded-2xl w-full max-w-sm mx-auto shadow-inner">
         <button 
-          on:click={() => activeTab = 'order'}
+          onclick={() => activeTab = 'order'}
           class="flex-1 py-3 px-6 rounded-xl font-bold transition-all {activeTab === 'order' ? 'bg-white text-stone-800 shadow-md' : 'text-stone-500 hover:text-stone-700'}"
         >
           依頼する
         </button>
         <button 
-          on:click={() => activeTab = 'deliver'}
+          onclick={() => activeTab = 'deliver'}
           class="flex-1 py-3 px-6 rounded-xl font-bold transition-all {activeTab === 'deliver' ? 'bg-white text-stone-800 shadow-md' : 'text-stone-500 hover:text-stone-700'}"
         >
           配達する
@@ -140,61 +192,133 @@
               <a href="/order" class="text-pink-500 font-bold underline">最初の依頼を作成してみましょう</a>
             </div>
           {:else}
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {#each myOrders as order (order.id)}
-                <a href="/orders/{order.id}" class="campus-card hover:translate-y-[-2px] transition-transform border border-stone-100 group relative overflow-hidden">
-                  {#if order.status === 'open'}
-                    <div class="absolute top-0 right-0 w-16 h-16 -mr-8 -mt-8 bg-pink-500/10 rounded-full blur-2xl group-hover:bg-pink-500/20 transition-all"></div>
-                  {/if}
-                  
-                  <div class="flex justify-between items-start mb-4">
-                    <div class="space-y-1">
-                      <h3 class="font-black text-stone-800 line-clamp-1 group-hover:text-pink-500 transition-colors">{order.title}</h3>
-                      {#if order.expiresAt && (order.status === 'open' || order.status === 'active')}
-                        <p class="text-[9px] font-bold text-orange-400 uppercase tracking-tight">
-                          期限: {formatTime(order.expiresAt)}まで
-                        </p>
-                      {/if}
+            <!-- Active Requests -->
+            {#if activeRequests.length > 0}
+              <div class="space-y-4 mb-10">
+                <h3 class="text-xs font-black text-stone-400 uppercase tracking-widest flex items-center space-x-2">
+                  <div class="w-1.5 h-1.5 bg-pink-500 rounded-full animate-pulse"></div>
+                  <span>進行中の依頼</span>
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {#each activeRequests as order (order.id)}
+                    <div class="relative group" in:fade>
+                      <a href="/orders/{order.id}" class="campus-card block hover:translate-y-[-2px] transition-transform border border-stone-100 group relative overflow-hidden h-full">
+                        {#if order.status === 'open'}
+                          <div class="absolute top-0 right-0 w-16 h-16 -mr-8 -mt-8 bg-pink-500/10 rounded-full blur-2xl group-hover:bg-pink-500/20 transition-all"></div>
+                        {/if}
+                        
+                        <div class="flex justify-between items-start mb-4 pr-8">
+                          <div class="space-y-1">
+                            <h3 class="font-black text-stone-800 line-clamp-1 group-hover:text-pink-500 transition-colors">{order.title}</h3>
+                            {#if order.expiresAt && (order.status === 'open' || order.status === 'active')}
+                              <p class="text-[9px] font-bold text-orange-400 uppercase tracking-tight">
+                                期限: {formatTime(order.expiresAt)}まで
+                              </p>
+                            {/if}
+                          </div>
+                          <span class="text-[10px] px-2.5 py-1 rounded-full font-black border {statusMap[order.status]?.color || 'bg-stone-100 text-stone-500 border-stone-200'} shadow-sm">
+                            {statusMap[order.status]?.label || order.status}
+                          </span>
+                        </div>
+                        
+                        <div class="flex justify-between items-end mt-auto">
+                          <div class="text-[10px] text-stone-400 font-bold uppercase tracking-widest flex items-center space-x-1">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
+                            </svg>
+                            <span>{new Date(order.createdAt).toLocaleDateString()}</span>
+                          </div>
+                          <div class="text-2xl font-black text-stone-800 tabular-nums">¥{order.reward.toLocaleString()}</div>
+                        </div>
+                      </a>
+                      
+                      <!-- Cancel Button -->
+                      <button 
+                        onclick={(e) => { e.preventDefault(); cancelOrder(order.id); }}
+                        class="absolute top-4 right-4 p-2 bg-white/80 hover:bg-stone-100 text-stone-400 hover:text-stone-800 rounded-xl backdrop-blur-sm border border-stone-100 shadow-sm transition-all z-10 opactiy-0 group-hover:opacity-100"
+                        title="依頼を取り消す"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
                     </div>
-                    <span class="text-[10px] px-2.5 py-1 rounded-full font-black border {statusMap[order.status]?.color || 'bg-stone-100 text-stone-500 border-stone-200'} shadow-sm">
-                      {statusMap[order.status]?.label || order.status}
-                    </span>
-                  </div>
-                  
-                  <div class="flex justify-between items-end mt-auto">
-                    <div class="text-[10px] text-stone-400 font-bold uppercase tracking-widest flex items-center space-x-1">
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
-                      </svg>
-                      <span>{new Date(order.createdAt).toLocaleDateString()}</span>
-                    </div>
-                    <div class="text-2xl font-black text-stone-800 tabular-nums">¥{order.reward.toLocaleString()}</div>
-                  </div>
-                </a>
-              {/each}
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
+            <!-- History Section -->
+            <div class="space-y-4 pt-6 border-t border-stone-200/50">
+              <h3 class="text-xs font-black text-stone-400 uppercase tracking-widest">過去の依頼履歴</h3>
+              {#if historyRequests.length === 0}
+                <p class="text-center py-10 text-stone-400 text-sm">履歴はありません。</p>
+              {:else}
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {#each historyRequests as order (order.id)}
+                    <a href="/orders/{order.id}" class="campus-card hover:translate-y-[-2px] transition-transform border border-stone-50 bg-stone-50/50 opacity-80 group grayscale-[0.5] hover:grayscale-0 transition-all">
+                      <div class="flex justify-between items-start mb-4">
+                        <div class="space-y-1">
+                          <h3 class="font-bold text-stone-600 line-clamp-1 group-hover:text-pink-500 transition-colors">{order.title}</h3>
+                          <div class="text-[10px] text-stone-400 font-bold uppercase tracking-widest flex items-center space-x-1">
+                            <span>{new Date(order.createdAt).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                        <span class="text-[9px] px-2 py-0.5 rounded-full font-black border {statusMap[order.status]?.color || 'bg-stone-100 text-stone-500'} opacity-70">
+                          {statusMap[order.status]?.label || order.status}
+                        </span>
+                      </div>
+                      
+                      <div class="flex justify-end items-end mt-auto">
+                        <div class="text-lg font-black text-stone-400 tabular-nums">¥{order.reward.toLocaleString()}</div>
+                      </div>
+                    </a>
+                  {/each}
+                </div>
+              {/if}
             </div>
           {/if}
         {:else}
           <!-- Deliver Tab -->
           <div class="space-y-6">
-            <!-- Balance Card -->
-            <div class="bg-gradient-to-br from-emerald-400 to-teal-500 rounded-2xl p-6 text-white shadow-lg space-y-1 relative overflow-hidden group" in:fly={{ y: 20 }}>
-              <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-20 w-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <p class="text-xs font-black uppercase tracking-widest opacity-80">Connected Account Balance</p>
-              <div class="flex items-baseline space-x-2">
-                <span class="text-xs font-bold">¥</span>
-                <span class="text-4xl font-black tabular-nums tracking-tighter">12,400</span>
-              </div>
-              <p class="text-[10px] items-center flex space-x-1 opacity-70">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l5-5z" clip-rule="evenodd" />
-                </svg>
-                <span>Stripe Connect: {env.PUBLIC_STRIPE_CONNECT_ACCOUNT_ID}</span>
-              </p>
+            <!-- Wallet Section -->
+            <div class="bg-gradient-to-br from-stone-800 to-stone-900 rounded-[2.5rem] p-8 text-white shadow-2xl shadow-stone-200 relative overflow-hidden" in:fade>
+                <div class="absolute top-0 right-0 w-64 h-64 bg-pink-500/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
+                
+                <div class="relative z-10 space-y-6">
+                    <div class="flex justify-between items-center">
+                        <div class="space-y-1">
+                            <p class="text-[10px] font-black text-stone-400 uppercase tracking-[0.2em]">Available Balance</p>
+                            <h2 class="text-4xl font-black tracking-tighter">
+                                ¥{wallet?.available.toLocaleString() ?? '---'}
+                            </h2>
+                        </div>
+                        <button 
+                            onclick={fetchBalance}
+                            class="p-3 bg-white/5 hover:bg-white/10 rounded-2xl transition-all active:scale-95"
+                            disabled={isBalanceLoading}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 {isBalanceLoading ? 'animate-spin' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 pt-4 border-t border-white/10">
+                        <div class="space-y-1">
+                            <p class="text-[9px] font-bold text-stone-500 uppercase tracking-widest">保留中</p>
+                            <p class="text-lg font-black text-stone-300">¥{wallet?.pending.toLocaleString() ?? '---'}</p>
+                        </div>
+                        <div class="space-y-1 text-right">
+                            <p class="text-[9px] font-bold text-emerald-500 uppercase tracking-widest">累計利益（純利益）</p>
+                            <p class="text-lg font-black text-emerald-400">¥{wallet?.totalProfit.toLocaleString() ?? '---'}</p>
+                        </div>
+                    </div>
+
+                    <button class="w-full py-4 bg-white text-stone-900 rounded-2xl font-black text-sm shadow-xl shadow-white/5 hover:bg-stone-100 transition-all active:scale-[0.98]">
+                        銀行口座へ引き出し
+                    </button>
+                </div>
             </div>
 
             <div class="flex justify-between items-center mb-6">

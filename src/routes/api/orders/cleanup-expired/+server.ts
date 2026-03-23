@@ -12,24 +12,30 @@ const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 export const GET = async () => {
   try {
     const now = Date.now();
-    
-    // 期限を過ぎた「open」ステータスの依頼を検索 (Admin SDK)
+    // 1. 「open」ステータスの依頼のみを取得。expiresAt の比較はインデックス回避のため JS 側で行う。
     const snapshot = await adminDb.collection('orders')
       .where('status', '==', 'open')
-      .where('expiresAt', '<', now)
       .get();
+    
+    // 現在時刻を過ぎたものを抽出
+    const expiredDocs = snapshot.docs.filter(doc => (doc.data().expiresAt || 0) < now);
     
     const results = [];
 
-    for (const orderDoc of snapshot.docs) {
+    for (const orderDoc of expiredDocs) {
       const order = orderDoc.data();
       const orderId = orderDoc.id;
 
       try {
         // 1. Stripe 仮押さえをキャンセル (存在する場合)
         if (order.paymentIntentId) {
-          await stripe.paymentIntents.cancel(order.paymentIntentId);
-          console.log(`[Expired Cleanup] Cancelled PI: ${order.paymentIntentId} for Order: ${orderId}`);
+          const pi = await stripe.paymentIntents.retrieve(order.paymentIntentId);
+          if (['requires_payment_method', 'requires_capture', 'requires_confirmation', 'requires_action', 'processing'].includes(pi.status)) {
+            await stripe.paymentIntents.cancel(order.paymentIntentId);
+            console.log(`[Expired Cleanup] Cancelled PI: ${order.paymentIntentId} for Order: ${orderId}`);
+          } else {
+            console.log(`[Expired Cleanup] PI: ${order.paymentIntentId} is in status ${pi.status}, skipping cancellation.`);
+          }
         }
 
         // 2. Firestore ステータスを「expired」に更新 (Admin SDK)
