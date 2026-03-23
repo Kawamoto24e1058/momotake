@@ -51,7 +51,17 @@ export const POST = async ({ request }) => {
       }, { status: 400 });
     }
 
-    // 4. Stripe キャプチャ実行
+    // 4. 配達員の情報を取得 (送金用)
+    let delivererStripeAccountId = '';
+    if (order.delivererId) {
+      console.log(`[Stripe Capture] Fetching deliverer account for: ${order.delivererId}`);
+      const delivererDoc = await adminDb.collection('users').doc(order.delivererId).get();
+      if (delivererDoc.exists) {
+        delivererStripeAccountId = delivererDoc.data()?.stripeAccountId;
+      }
+    }
+
+    // 5. Stripe キャプチャ実行
     console.log(`[Stripe Capture] Executing stripe.paymentIntents.capture for PI: ${piId}...`);
     const intent = await stripe.paymentIntents.capture(piId, {
       amount_to_capture: finalAmount,
@@ -59,11 +69,37 @@ export const POST = async ({ request }) => {
 
     console.log(`[Stripe Capture] SUCCESS: Intent ID = ${intent.id}, Status = ${intent.status}`);
 
-    // 5. ステータス更新 (Admin SDKを使用)
+    // 6. 配達員への送金 (Transfer)
+    if (delivererStripeAccountId && intent.status === 'succeeded') {
+      const amountToTransfer = finalAmount - fee;
+      console.log(`[Stripe Payout] Transferring ¥${amountToTransfer} to ${delivererStripeAccountId}...`);
+      
+      try {
+        const transfer = await stripe.transfers.create({
+          amount: amountToTransfer,
+          currency: 'jpy',
+          destination: delivererStripeAccountId,
+          transfer_group: orderId,
+          description: `Payout for Order ${orderId}`
+        });
+        console.log(`[Stripe Payout] SUCCESS: Transfer ID = ${transfer.id}`);
+      } catch (transferErr: any) {
+        console.error('------- STRIPE PAYOUT ERROR -------');
+        console.error('Transfer failed but capture succeeded.');
+        console.error('Transfer Error:', transferErr.message);
+        // 送金失敗は記録するが、ステータス更新自体は進める (手動対応可能にするため)
+      }
+    } else {
+      console.warn(`[Stripe Payout] SKIPPED: Missing stripeAccountId for deliverer ${order.delivererId}`);
+    }
+
+    // 7. ステータス更新 (Admin SDKを使用)
     console.log(`[Stripe Capture] Updating Firestore status to 'completed' for order: ${orderId}`);
     await adminDb.collection('orders').doc(orderId).update({
       status: 'completed',
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      payoutAmount: finalAmount - fee,
+      payoutStatus: delivererStripeAccountId ? 'paid' : 'manual_check_required'
     });
 
     return json({ success: true, intentId: intent.id });
