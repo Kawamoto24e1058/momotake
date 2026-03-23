@@ -21,23 +21,38 @@ export const POST = async ({ request }) => {
       throw error(404, 'User not found');
     }
 
-    let stripeAccountId = userDoc.data()?.stripeAccountId;
+    const userData = userDoc.data();
+    let stripeAccountId = userData?.stripeAccountId;
+    const userEmail = userData?.email;
+
+    const businessProfile = {
+      url: 'https://momotake.vercel.app',
+      product_description: 'Campus Hubを通じたお使い・代行業務の報酬受け取り'
+    };
 
     // 2. アカウントがない場合は新規作成 (Express)
     if (!stripeAccountId) {
       console.log(`[Stripe Onboarding] Creating new Express account for: ${userId}`);
       const account = await stripe.accounts.create({
         type: 'express',
+        email: userEmail,
         capabilities: {
           transfers: { requested: true },
         },
         business_type: 'individual',
+        business_profile: businessProfile,
         metadata: { userId }
       });
       stripeAccountId = account.id;
       
       // Firestore に ID を保存
       await userRef.update({ stripeAccountId });
+    } else {
+      // 既存アカウントも情報をパッチして入力負担を軽減
+      console.log(`[Stripe Onboarding] Patching existing account: ${stripeAccountId}`);
+      await stripe.accounts.update(stripeAccountId, {
+        business_profile: businessProfile
+      });
     }
 
     // 3. オンボーディング URL の生成
