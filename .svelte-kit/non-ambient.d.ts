@@ -29,7 +29,7 @@ declare module "$app/types" {
 	type MatcherParam<M> = M extends (param : string) => param is (infer U extends string) ? U : string;
 
 	export interface AppTypes {
-		RouteId(): "/" | "/api" | "/api/extract-amount" | "/api/orders" | "/api/orders/cleanup-expired" | "/api/orders/cleanup-test-data" | "/api/orders/complete" | "/api/stripe" | "/api/stripe/balance" | "/api/stripe/cancel" | "/api/stripe/capture" | "/api/stripe/checkout" | "/api/stripe/verify-session" | "/login" | "/orders" | "/orders/[id]" | "/order" | "/scan";
+		RouteId(): "/" | "/api" | "/api/extract-amount" | "/api/orders" | "/api/orders/cleanup-expired" | "/api/orders/cleanup-test-data" | "/api/orders/complete" | "/api/stripe" | "/api/stripe/balance" | "/api/stripe/cancel" | "/api/stripe/capture" | "/api/stripe/checkout" | "/api/stripe/onboarding" | "/api/stripe/verify-session" | "/login" | "/orders" | "/orders/[id]" | "/order" | "/scan";
 		RouteParams(): {
 			"/orders/[id]": { id: string }
 		};
@@ -46,6 +46,7 @@ declare module "$app/types" {
 			"/api/stripe/cancel": Record<string, never>;
 			"/api/stripe/capture": Record<string, never>;
 			"/api/stripe/checkout": Record<string, never>;
+			"/api/stripe/onboarding": Record<string, never>;
 			"/api/stripe/verify-session": Record<string, never>;
 			"/login": Record<string, never>;
 			"/orders": { id?: string };
@@ -53,7 +54,7 @@ declare module "$app/types" {
 			"/order": Record<string, never>;
 			"/scan": Record<string, never>
 		};
-		Pathname(): "/" | "/api/extract-amount" | "/api/orders/cleanup-expired" | "/api/orders/cleanup-test-data" | "/api/orders/complete" | "/api/stripe/balance" | "/api/stripe/cancel" | "/api/stripe/capture" | "/api/stripe/checkout" | "/api/stripe/verify-session" | "/login" | `/orders/${string}` & {} | "/order" | "/scan";
+		Pathname(): "/" | "/api/extract-amount" | "/api/orders/cleanup-expired" | "/api/orders/cleanup-test-data" | "/api/orders/complete" | "/api/stripe/balance" | "/api/stripe/cancel" | "/api/stripe/capture" | "/api/stripe/checkout" | "/api/stripe/onboarding" | "/api/stripe/verify-session" | "/login" | `/orders/${string}` & {} | "/order" | "/scan";
 		ResolvedPathname(): `${"" | `/${string}`}${ReturnType<AppTypes['Pathname']>}`;
 		Asset(): string & {};
 	}

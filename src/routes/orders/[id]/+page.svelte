@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick, onDestroy } from 'svelte';
   import { page } from '$app/stores';
-  import { user } from '$lib/firebase/authStore';
+  import { user, profile } from '$lib/firebase/authStore';
   import { 
     subscribeToOrder, updateOrderStatus, updateOrderReimbursement, approveOrderCost,
     sendMessage, subscribeToMessages 
@@ -205,6 +205,13 @@
 
   async function handleTakeOrder() {
     if (!$user || !order || !orderId) return;
+
+    if (!$profile?.stripeAccountId) {
+      alert('配達して報酬を受け取るには、事前にマイページから受取口座（銀行口座）の登録が必要です。');
+      window.location.href = '/?tab=deliver';
+      return;
+    }
+
     await updateOrderStatus(orderId, 'active', {
       deliveryId: $user.uid,
       acceptedAt: Date.now()

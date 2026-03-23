@@ -24,6 +24,9 @@
 	"/api/stripe/checkout": [
 		"src/routes/api/stripe/checkout/+server.ts"
 	],
+	"/api/stripe/onboarding": [
+		"src/routes/api/stripe/onboarding/+server.ts"
+	],
 	"/api/stripe/verify-session": [
 		"src/routes/api/stripe/verify-session/+server.ts"
 	],

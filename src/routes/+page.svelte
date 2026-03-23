@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { user } from '$lib/firebase/authStore';
+  import { user, profile } from '$lib/firebase/authStore';
   import { subscribeMyOrders, subscribeOpenOrders } from '$lib/firebase/orderStore';
   import type { Order } from '$lib/types/order';
   import { fade, fly } from 'svelte/transition';
   import { env } from '$env/dynamic/public';
+  import { calculatePlatformFee } from '$lib/utils/feeCalculator';
 
   let activeTab = $state<'order' | 'deliver'>('order');
   let myOrders = $state<Order[]>([]);
@@ -17,6 +18,37 @@
   // Wallet State
   let wallet = $state<{ available: number, pending: number, totalProfit: number } | null>(null);
   let isBalanceLoading = $state(false);
+
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab === 'deliver' || tab === 'wallet') {
+      activeTab = 'deliver';
+    }
+  });
+
+  async function handleLinkAccount() {
+    if (!$user) return;
+    isBalanceLoading = true;
+    try {
+      const res = await fetch('/api/stripe/onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: $user.uid, origin: window.location.origin })
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error(data.error || 'Failed to generate onboarding link');
+      }
+    } catch (e) {
+      console.error('Onboarding error:', e);
+      alert('口座連携の開始に失敗しました。時間を置いて再度お試しください。');
+    } finally {
+      isBalanceLoading = false;
+    }
+  }
 
   const statusMap: Record<string, { label: string, color: string }> = {
     'pending_payment': { label: 'お支払い待ち', color: 'bg-stone-100 text-stone-500' },
@@ -315,9 +347,21 @@
                         </div>
                     </div>
 
-                    <button class="w-full py-4 bg-white text-stone-900 rounded-2xl font-black text-sm shadow-xl shadow-white/5 hover:bg-stone-100 transition-all active:scale-[0.98]">
-                        銀行口座へ引き出し
+                    <button 
+                        onclick={handleLinkAccount}
+                        class="w-full py-4 bg-white text-stone-900 rounded-2xl font-black text-sm shadow-xl shadow-white/5 hover:bg-stone-100 transition-all active:scale-[0.98] flex items-center justify-center space-x-2"
+                        disabled={isBalanceLoading}
+                    >
+                        {#if isBalanceLoading}
+                            <div class="animate-spin h-4 w-4 border-2 border-stone-800 border-t-transparent rounded-full"></div>
+                        {/if}
+                        <span>{$profile?.stripeAccountId ? '受取口座を確認・編集' : '銀行口座を登録する'}</span>
                     </button>
+                    {#if !$profile?.stripeAccountId}
+                        <p class="text-[10px] text-stone-500 text-center font-bold px-4 leading-relaxed">
+                            ※配達して報酬を受け取るには、Stripe Connect による口座連携が必要です。
+                        </p>
+                    {/if}
                 </div>
             </div>
 

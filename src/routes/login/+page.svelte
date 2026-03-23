@@ -67,9 +67,12 @@
         <p class="text-xs text-red-500 font-bold" in:fade>{error}</p>
       {/if}
 
-      <div class="pt-4">
+      <div class="pt-4 space-y-2">
         <p class="text-[9px] text-stone-400 uppercase tracking-widest leading-relaxed">
           By logging in, you agree to connect<br>with your campus community safely.
+        </p>
+        <p class="text-[10px] text-stone-400 font-bold leading-relaxed px-6">
+          ※配達して報酬を得たい場合は、ログイン後にウォレットから受取口座の登録が必要です。
         </p>
       </div>
     </main>

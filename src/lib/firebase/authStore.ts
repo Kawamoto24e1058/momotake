@@ -2,12 +2,17 @@ import { writable } from 'svelte/store';
 import { auth, googleProvider, db } from './firebase';
 export { auth };
 import { signInWithPopup, signOut, onAuthStateChanged, type User } from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp, onSnapshot, type DocumentSnapshot } from 'firebase/firestore';
 
 /**
  * ログイン中のユーザー情報を管理する Svelte ストア
  */
 export const user = writable<User | null>(null);
+
+/**
+ * Firestore のユーザープロファイルを管理するストア
+ */
+export const profile = writable<any>(null);
 
 /**
  * 認証初期化状態を管理するストア
@@ -16,10 +21,25 @@ export const user = writable<User | null>(null);
 export const loading = writable<boolean>(true);
 
 // 認証状態の変化を監視
-let initialAuthChecked = false;
+let profileUnsubscribe: (() => void) | null = null;
+
 onAuthStateChanged(auth, (u) => {
   user.set(u);
-  initialAuthChecked = true;
+  
+  if (profileUnsubscribe) {
+    profileUnsubscribe();
+    profileUnsubscribe = null;
+  }
+
+  if (u) {
+    // Firestore プロファイルをリアルタイム購読
+    profileUnsubscribe = onSnapshot(doc(db, 'users', u.uid), (snap) => {
+      profile.set(snap.exists() ? snap.data() : null);
+    });
+  } else {
+    profile.set(null);
+  }
+
   loading.set(false);
 });
 
