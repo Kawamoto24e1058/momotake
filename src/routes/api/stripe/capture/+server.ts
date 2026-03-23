@@ -52,13 +52,24 @@ export const POST = async ({ request }) => {
     }
 
     // 4. 配達員の情報を取得 (送金用)
-    let delivererStripeAccountId = '';
-    if (order.delivererId) {
-      console.log(`[Stripe Capture] Fetching deliverer account for: ${order.delivererId}`);
-      const delivererDoc = await adminDb.collection('users').doc(order.delivererId).get();
-      if (delivererDoc.exists) {
-        delivererStripeAccountId = delivererDoc.data()?.stripeAccountId;
-      }
+    // 依頼ドキュメント上のフィールド名は delivererId ではなく deliveryId であることを確認済み
+    const deliveryId = order.deliveryId;
+    if (!deliveryId) {
+      console.error(`[Stripe Capture] ERROR: Missing deliveryId for order: ${orderId}`);
+      throw new Error('配達員情報が見つからないため、送金処理を継続できません。');
+    }
+
+    console.log(`[Stripe Capture] Fetching deliverer account for UID: ${deliveryId}`);
+    const delivererDoc = await adminDb.collection('users').doc(deliveryId).get();
+    
+    if (!delivererDoc.exists) {
+      throw new Error(`配達員ユーザー(ID: ${deliveryId})が見つかりません。`);
+    }
+
+    const delivererStripeAccountId = delivererDoc.data()?.stripeAccountId;
+    if (!delivererStripeAccountId) {
+      console.error(`[Stripe Capture] ERROR: Missing stripeAccountId for deliveryId: ${deliveryId}`);
+      throw new Error('配達員のStripeアカウントが設定されていないため、送金できません。銀行口座の連携を確認してください。');
     }
 
     // 5. Stripe キャプチャ実行
@@ -70,27 +81,23 @@ export const POST = async ({ request }) => {
     console.log(`[Stripe Capture] SUCCESS: Intent ID = ${intent.id}, Status = ${intent.status}`);
 
     // 6. 配達員への送金 (Transfer)
-    if (delivererStripeAccountId && intent.status === 'succeeded') {
-      const amountToTransfer = finalAmount - fee;
-      console.log(`[Stripe Payout] Transferring ¥${amountToTransfer} to ${delivererStripeAccountId}...`);
-      
-      try {
-        const transfer = await stripe.transfers.create({
-          amount: amountToTransfer,
-          currency: 'jpy',
-          destination: delivererStripeAccountId,
-          transfer_group: orderId,
-          description: `Payout for Order ${orderId}`
-        });
-        console.log(`[Stripe Payout] SUCCESS: Transfer ID = ${transfer.id}`);
-      } catch (transferErr: any) {
-        console.error('------- STRIPE PAYOUT ERROR -------');
-        console.error('Transfer failed but capture succeeded.');
-        console.error('Transfer Error:', transferErr.message);
-        // 送金失敗は記録するが、ステータス更新自体は進める (手動対応可能にするため)
-      }
-    } else {
-      console.warn(`[Stripe Payout] SKIPPED: Missing stripeAccountId for deliverer ${order.delivererId}`);
+    const amountToTransfer = finalAmount - fee;
+    console.log(`[Stripe Payout] Transferring ¥${amountToTransfer} to ${delivererStripeAccountId} (DeliveryId: ${deliveryId})...`);
+    
+    try {
+      const transfer = await stripe.transfers.create({
+        amount: amountToTransfer,
+        currency: 'jpy',
+        destination: delivererStripeAccountId,
+        transfer_group: orderId,
+        description: `Payout for Order ${orderId}`
+      });
+      console.log(`[Stripe Payout] SUCCESS: Transfer ID = ${transfer.id}`);
+    } catch (transferErr: any) {
+      console.error('------- STRIPE PAYOUT ERROR -------');
+      console.error('Transfer failed but capture succeeded.');
+      console.error('Transfer Error:', transferErr.message);
+      throw new Error(`Stripe送金エラー: ${transferErr.message}`);
     }
 
     // 7. ステータス更新 (Admin SDKを使用)
@@ -98,19 +105,18 @@ export const POST = async ({ request }) => {
     await adminDb.collection('orders').doc(orderId).update({
       status: 'completed',
       updatedAt: Date.now(),
-      payoutAmount: finalAmount - fee,
-      payoutStatus: delivererStripeAccountId ? 'paid' : 'manual_check_required'
+      payoutAmount: amountToTransfer,
+      payoutStatus: 'paid'
     });
 
     return json({ success: true, intentId: intent.id });
   } catch (err: any) {
     console.error('------- STRIPE CAPTURE ERROR START -------');
     console.error('Order ID:', orderId);
+    console.error('Error:', err.message);
     if (err.raw) {
       console.error('Raw Stripe Error:', JSON.stringify(err.raw, null, 2));
     }
-    console.error('Error Message:', err.message);
-    if (err.stack) console.error('Stack Trace:', err.stack);
     console.error('------- STRIPE CAPTURE ERROR END -------');
     
     return json({ 
