@@ -28,10 +28,6 @@ export const POST = async ({ request }) => {
       mode: 'payment',
       payment_intent_data: {
         capture_method: 'manual',
-        transfer_data: {
-          destination: publicEnv.PUBLIC_STRIPE_CONNECT_ACCOUNT_ID,
-        },
-        application_fee_amount: Math.round(Math.max(50, orderData.reward * 0.1)),
         metadata: { orderId }
       },
       success_url: `${request.headers.get('origin')}/orders/${orderId}?success=true`,

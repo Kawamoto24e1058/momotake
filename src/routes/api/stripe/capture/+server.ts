@@ -55,7 +55,6 @@ export const POST = async ({ request }) => {
     console.log(`[Stripe Capture] Executing stripe.paymentIntents.capture for PI: ${piId}...`);
     const intent = await stripe.paymentIntents.capture(piId, {
       amount_to_capture: finalAmount,
-      application_fee_amount: fee,
     });
 
     console.log(`[Stripe Capture] SUCCESS: Intent ID = ${intent.id}, Status = ${intent.status}`);
